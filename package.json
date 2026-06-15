@@ -1,0 +1,55 @@
+{
+  "name": "team-api",
+  "version": "1.0.0",
+  "description": "File-system based HTTP API testing client with Git integration.",
+  "author": "TeamAPI",
+  "main": "src/main/main.js",
+  "scripts": {
+    "start": "electron .",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder",
+    "release": "./release.sh"
+  },
+  "dependencies": {
+    "axios": "^1.9.0",
+    "simple-git": "^3.27.0",
+    "uuid": "^11.1.0"
+  },
+  "devDependencies": {
+    "electron": "^36.3.1",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.teamapi.app",
+    "productName": "TeamAPI",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "assets/**/*",
+      "package.json"
+    ],
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "icon": "assets/icon.png",
+      "identity": null
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "msi",
+        "zip"
+      ],
+      "icon": "assets/icon.png"
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "icon": "assets/icon.png"
+    }
+  }
+}

@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy"
+    content="default-src 'self' https://fonts.gstatic.com; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com;">
+  <title>TeamAPI — HTTP Client</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+
+  <!-- Custom Drag Titlebar -->
+  <header class="custom-titlebar">
+    <div class="titlebar-drag-region"></div>
+    <div class="titlebar-content">
+      <span class="titlebar-icon">⚡</span>
+      <span class="titlebar-workspace-name" id="titlebarWorkspaceName">TeamAPI</span>
+    </div>
+  </header>
+
+  <!-- Toast Notification Area -->
+  <div id="toastContainer" class="toast-container"></div>
+
+  <!-- Context Menu (hidden by default) -->
+  <div id="contextMenu" class="context-menu" style="display: none;"></div>
+
+  <!-- Welcome / Workspace Screen -->
+  <div id="welcomeScreen" class="welcome-screen">
+    <div class="welcome-logo">TeamAPI</div>
+    <div class="welcome-subtitle">File-system & Git Based HTTP Client</div>
+    <div class="welcome-actions">
+      <button class="welcome-btn" id="welcomeOpenBtn">
+        <svg class="welcome-btn-icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+        </svg>
+        <span class="welcome-btn-title">Open Workspace</span>
+        <span class="welcome-btn-desc">Select an existing shared directory</span>
+      </button>
+      <button class="welcome-btn" id="welcomeNewBtn">
+        <svg class="welcome-btn-icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 5v14M5 12h14"></path>
+        </svg>
+        <span class="welcome-btn-title">New Workspace</span>
+        <span class="welcome-btn-desc">Create a new local repository</span>
+      </button>
+    </div>
+    <div class="welcome-recent" id="welcomeRecent" style="display: none;">
+      <div class="welcome-recent-title">Recent Workspace</div>
+      <div class="recent-workspace-item" id="recentWorkspaceItem"></div>
+    </div>
+  </div>
+
+  <!-- App Layout -->
+  <div class="app-layout">
+
+    <!-- Left Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <div class="workspace-title" id="workspaceTitle">Workspace</div>
+        <button class="sidebar-btn" id="btnChangeWorkspace">Change</button>
+      </div>
+
+      <div class="sidebar-section">
+        <div class="sidebar-title">
+          <span>Collections</span>
+          <span class="sidebar-add-icon" id="btnAddCollection" title="New Collection">+</span>
+        </div>
+        <div class="sidebar-list" id="collectionsList">
+          <!-- Populated by app.js -->
+        </div>
+
+        <div class="sidebar-title" style="margin-top: 10px;">
+          <span>History</span>
+        </div>
+        <div class="history-list" id="historyList">
+          <!-- Populated by app.js -->
+        </div>
+      </div>
+    </aside>
+
+    <!-- Center Panel (Request Editor) -->
+    <main class="main-editor">
+      <!-- URL Bar -->
+      <div class="url-bar">
+        <select class="method-select" id="requestMethod">
+          <option value="GET">GET</option>
+          <option value="POST">POST</option>
+          <option value="PUT">PUT</option>
+          <option value="PATCH">PATCH</option>
+          <option value="DELETE">DELETE</option>
+          <option value="HEAD">HEAD</option>
+          <option value="OPTIONS">OPTIONS</option>
+        </select>
+        <div class="url-input-container">
+          <input type="text" class="url-input" id="requestUrl" placeholder="Enter request URL or {{variable}}">
+        </div>
+        <button class="btn-send" id="btnSend">SEND</button>
+        <button class="btn-code" id="btnCodeSnippet" title="Generate Code Snippet">&lt;/&gt;</button>
+      </div>
+
+      <!-- Editor Tabs Bar -->
+      <div class="tabs-bar" id="editorTabs">
+        <div class="tab-btn active" data-tab="tabParams">Params</div>
+        <div class="tab-btn" data-tab="tabHeaders">Headers</div>
+        <div class="tab-btn" data-tab="tabAuth">Auth</div>
+        <div class="tab-btn" data-tab="tabBody">Body</div>
+        <div class="tab-btn" data-tab="tabScripts">Script</div>
+      </div>
+
+      <!-- Editor Tab Content Panels -->
+
+      <!-- Params Tab -->
+      <div class="tab-content active" id="tabParams">
+        <div class="kv-container" id="paramsContainer">
+          <div class="kv-header">
+            <div></div>
+            <div>Key</div>
+            <div>Value</div>
+            <div></div>
+          </div>
+          <!-- Rows dynamically added -->
+        </div>
+      </div>
+
+      <!-- Headers Tab -->
+      <div class="tab-content" id="tabHeaders">
+        <div class="kv-container" id="headersContainer">
+          <div class="kv-header">
+            <div></div>
+            <div>Key</div>
+            <div>Value</div>
+            <div></div>
+          </div>
+          <!-- Rows dynamically added -->
+        </div>
+      </div>
+
+      <!-- Auth Tab -->
+      <div class="tab-content" id="tabAuth">
+        <div class="auth-container">
+          <div class="form-group">
+            <label for="authType">Type</label>
+            <select class="form-control" id="authType">
+              <option value="none">No Auth</option>
+              <option value="bearer">Bearer Token</option>
+              <option value="basic">Basic Auth</option>
+              <option value="apikey">API Key</option>
+            </select>
+          </div>
+
+          <!-- Bearer inputs -->
+          <div id="authBearerFields" class="auth-fields" style="display: none; margin-top: 10px;">
+            <div class="form-group">
+              <label for="authBearerToken">Token</label>
+              <input type="text" class="form-control mono" id="authBearerToken" placeholder="{{token}} or plain text">
+            </div>
+          </div>
+
+          <!-- Basic inputs -->
+          <div id="authBasicFields" class="auth-fields" style="display: none; margin-top: 10px;">
+            <div class="form-group" style="margin-bottom: 8px;">
+              <label for="authBasicUser">Username</label>
+              <input type="text" class="form-control" id="authBasicUser">
+            </div>
+            <div class="form-group">
+              <label for="authBasicPassword">Password</label>
+              <input type="password" class="form-control" id="authBasicPassword">
+            </div>
+          </div>
+
+          <!-- API Key inputs -->
+          <div id="authApiKeyFields" class="auth-fields" style="display: none; margin-top: 10px;">
+            <div class="form-group" style="margin-bottom: 8px;">
+              <label for="authApiKeyVal">Key Value</label>
+              <input type="text" class="form-control mono" id="authApiKeyVal">
+            </div>
+            <div class="form-group">
+              <label for="authApiKeyHeader">Header Name</label>
+              <input type="text" class="form-control" id="authApiKeyHeader" placeholder="X-API-Key">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Body Tab -->
+      <div class="tab-content" id="tabBody">
+        <div class="body-type-select-container">
+          <div class="body-type-select" id="bodyTypeSelect">
+            <div class="body-type-btn active" data-value="none">None</div>
+            <div class="body-type-btn" data-value="form">Form Data</div>
+            <div class="body-type-btn" data-value="urlencoded">x-www-form-urlencoded</div>
+            <div class="body-type-btn" data-value="raw">Raw</div>
+            <div class="body-type-btn" data-value="graphql">GraphQL</div>
+          </div>
+          <select class="body-subtype-select" id="bodySubTypeSelect" style="display: none;">
+            <option value="json">JSON</option>
+            <option value="text">Text</option>
+            <option value="xml">XML</option>
+            <option value="html">HTML</option>
+            <option value="javascript">Javascript</option>
+          </select>
+        </div>
+
+        <div id="bodyTextEditor" style="display: none; flex: 1;">
+          <textarea class="editor-textarea" id="bodyContent" placeholder="Write payload content here..."></textarea>
+        </div>
+
+        <div id="bodyFormEditor" style="display: none;">
+          <div class="kv-container" id="bodyFormContainer">
+            <div class="kv-header">
+              <div></div>
+              <div>Key</div>
+              <div>Value</div>
+              <div></div>
+            </div>
+            <!-- Rows dynamically added -->
+          </div>
+        </div>
+
+        <div id="bodyGraphqlEditor" style="display: none; flex-direction: column; gap: 8px; flex: 1;">
+          <div style="display: flex; flex-direction: column; flex: 1; gap: 6px;">
+            <span style="font-size: 10px; font-weight: 700; color: var(--text-dim); text-transform: uppercase;">Query</span>
+            <textarea class="editor-textarea mono" id="graphqlQuery" placeholder="query {&#10;  continents {&#10;    name&#10;  }&#10;}"></textarea>
+          </div>
+          <div style="display: flex; flex-direction: column; height: 140px; gap: 6px;">
+            <span style="font-size: 10px; font-weight: 700; color: var(--text-dim); text-transform: uppercase;">Variables (JSON)</span>
+            <textarea class="editor-textarea mono" id="graphqlVariables" placeholder="{}"></textarea>
+          </div>
+        </div>
+      </div>
+
+      <!-- Scripts Tab -->
+      <div class="tab-content" id="tabScripts">
+        <div class="scripts-select-container">
+          <div class="scripts-type-select" id="scriptsTypeSelect">
+            <div class="scripts-type-btn active" data-value="pre">Pre-Request</div>
+            <div class="scripts-type-btn" data-value="post">Post-Response</div>
+          </div>
+        </div>
+        
+        <!-- Pre-Request Script Pane -->
+        <div id="preScriptPane" style="display: flex; flex-direction: column; flex: 1; gap: 12px;">
+          <div class="script-ref-box">
+            <div class="script-ref-title">Pre-Request Sandbox Script (vm-context)</div>
+            <div class="script-ref-code">
+              pm.environment.set("ts", Date.now());<br>
+              pm.environment.get("baseUrl");
+            </div>
+          </div>
+          <textarea class="editor-textarea mono" id="preScript" placeholder="// Javascript executed before the request executes..."></textarea>
+        </div>
+
+        <!-- Post-Response Script Pane -->
+        <div id="postScriptPane" style="display: none; flex-direction: column; flex: 1; gap: 12px;">
+          <div class="script-ref-box">
+            <div class="script-ref-title">Post-Response Sandbox Script (vm-context)</div>
+            <div class="script-ref-code">
+              const json = pm.response.json();<br>
+              pm.environment.set("authToken", json.token);<br>
+              console.log("Response Code:", pm.response.code);
+            </div>
+          </div>
+          <textarea class="editor-textarea mono" id="postScript" placeholder="// Javascript executed after receiving the response..."></textarea>
+        </div>
+      </div>
+      <!-- Git Conflict Alert View -->
+      <div id="conflictAlertPane" style="display: none; flex-direction: column; flex: 1; padding: 24px; overflow-y: auto; background-color: var(--bg-secondary);">
+        <div class="conflict-title-group">
+          <span class="conflict-warning-icon">⚠️</span>
+          <div class="conflict-header-text">
+            <h2>Git Merge Conflict Detected</h2>
+            <p>This collection file has conflicting changes from a merge or pull. You must resolve these before you can edit or execute requests.</p>
+          </div>
+        </div>
+        
+        <div class="conflict-info-card">
+          <div class="conflict-info-title">Conflicting File Path:</div>
+          <div id="conflictFilePath" class="conflict-file-path">collections/xxxx.json</div>
+        </div>
+
+        <div class="conflict-instructions-title">How to resolve:</div>
+        <ul class="conflict-steps">
+          <li class="conflict-step-item">
+            <span class="conflict-step-num">1</span>
+            <span class="conflict-step-text">Open the file in an external editor (VS Code, cursor, etc.) or resolve using standard git CLI.</span>
+          </li>
+          <li class="conflict-step-item">
+            <span class="conflict-step-num">2</span>
+            <span class="conflict-step-text">Search for standard merge markers like <code>&lt;&lt;&lt;&lt;&lt;&lt;&lt; HEAD</code>, <code>=======</code>, and <code>&gt;&gt;&gt;&gt;&gt;&gt;&gt;</code>.</span>
+          </li>
+          <li class="conflict-step-item">
+            <span class="conflict-step-num">3</span>
+            <span class="conflict-step-text">Choose which changes to keep, delete the conflict markers, and save the file.</span>
+          </li>
+          <li class="conflict-step-item">
+            <span class="conflict-step-num">4</span>
+            <span class="conflict-step-text">Once resolved, click <strong>Reload Collections</strong> below to reload and continue editing.</span>
+          </li>
+        </ul>
+
+        <div class="conflict-actions-bar">
+          <button class="btn-primary" id="btnResolveRefresh">Reload Collections</button>
+          <button class="btn-secondary" id="btnResolveAbort">Close Warning</button>
+        </div>
+      </div>
+    </main>
+
+    <!-- Right Panel (Response Panel) -->
+    <aside class="response-panel" id="responsePanel">
+      <div class="response-header">
+        <div class="response-status-group">
+          <div class="response-badge" id="responseStatus" style="display: none;">0</div>
+          <div class="response-meta" id="responseMeta" style="display: none;">
+            <span id="responseTime">0ms</span>
+            <span>&bull;</span>
+            <span id="responseSize">0 B</span>
+          </div>
+        </div>
+        <div class="response-actions">
+          <div class="pretty-raw-toggle" id="prettyRawToggle" style="display: none;">
+            <div class="toggle-btn active" data-mode="pretty">Pretty</div>
+            <div class="toggle-btn" data-mode="raw">Raw</div>
+          </div>
+          <button class="sidebar-btn" id="btnCopyResponse" style="display: none;">Copy</button>
+        </div>
+      </div>
+
+      <!-- Response Tabs Bar -->
+      <div class="tabs-bar" id="responseTabs">
+        <div class="tab-btn active" data-tab="tabRespBody">Body</div>
+        <div class="tab-btn" data-tab="tabRespHeaders">Headers</div>
+        <div class="tab-btn" data-tab="tabRespLog">Script Log</div>
+        <div class="tab-btn" data-tab="tabRespTests">Tests</div>
+      </div>
+
+      <!-- Response Tab Panels -->
+      <div class="tab-content active" id="tabRespBody" style="background-color: var(--bg-primary); gap: 8px;">
+        <div class="response-search-bar" id="responseSearchBar" style="display: none; align-items: center; gap: 8px; border-bottom: 1px solid var(--border); padding-bottom: 6px;">
+          <input type="text" id="responseSearchInput" placeholder="Search in response..." style="font-size: 11px; padding: 4px 8px; flex: 1; background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: 4px; color: var(--text-primary);">
+          <span id="responseSearchCount" style="font-size: 11px; color: var(--text-muted); font-family: monospace;">0/0</span>
+          <button id="btnPrevSearch" class="sidebar-btn" style="padding: 2px 6px;">&uarr;</button>
+          <button id="btnNextSearch" class="sidebar-btn" style="padding: 2px 6px;">&darr;</button>
+        </div>
+        <div class="json-rendered mono" id="responseBodyDisplay" style="overflow: auto; flex: 1; user-select: text; -webkit-user-select: text;">
+          <!-- Display raw or formatted response content -->
+          <div style="color: var(--text-dim); text-align: center; margin-top: 40px;">Send a request to see output</div>
+        </div>
+      </div>
+
+      <div class="tab-content" id="tabRespHeaders">
+        <div style="overflow-y: auto; flex: 1;">
+          <table class="headers-table" id="responseHeadersTable">
+            <!-- Headers rows filled dynamically -->
+          </table>
+        </div>
+      </div>
+
+      <div class="tab-content" id="tabRespLog">
+        <div class="script-logs-list" id="scriptLogsDisplay">
+          <!-- console.log statements printed here -->
+          <div style="color: var(--text-dim); text-align: center; margin-top: 40px;">No execution scripts run yet</div>
+        </div>
+      </div>
+
+      <div class="tab-content" id="tabRespTests">
+        <div class="script-logs-list" id="responseTestsDisplay">
+          <div style="color: var(--text-dim); text-align: center; margin-top: 40px;">No tests executed yet</div>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <!-- Bottom Status Bar -->
+  <footer class="status-bar">
+    <div class="status-left">
+      <div class="status-dropdown-wrapper">
+        <select class="status-dropdown" id="envSelector">
+          <option value="none">No Environment</option>
+          <option value="edit-envs">-- Manage Environments --</option>
+        </select>
+      </div>
+    </div>
+    <div class="status-right">
+    </div>
+  </footer>
+
+  <!-- DIALOG MODALS -->
+
+  <!-- Create Workspace Modal -->
+  <dialog id="modalCreateWorkspace">
+    <div class="dialog-header">Create New Workspace</div>
+    <div class="dialog-body">
+      <div class="form-group">
+        <label for="newWorkspaceName">Workspace Name (will create folder)</label>
+        <input type="text" class="form-control" id="newWorkspaceName" placeholder="my-api-workspace">
+      </div>
+    </div>
+    <div class="dialog-footer">
+      <button class="btn-secondary" id="btnCancelCreateWorkspace">Cancel</button>
+      <button class="btn-primary" id="btnConfirmCreateWorkspace">Create</button>
+    </div>
+  </dialog>
+
+  <!-- Create Collection Modal -->
+  <dialog id="modalCreateCollection">
+    <div class="dialog-header">New Collection</div>
+    <div class="dialog-body">
+      <div class="form-group">
+        <label for="newCollectionName">Collection Name</label>
+        <input type="text" class="form-control" id="newCollectionName">
+      </div>
+    </div>
+    <div class="dialog-footer">
+      <button class="btn-secondary" id="btnCancelCreateCollection">Cancel</button>
+      <button class="btn-primary" id="btnConfirmCreateCollection">Save</button>
+    </div>
+  </dialog>
+
+  <!-- Create Folder Modal -->
+  <dialog id="modalCreateFolder">
+    <div class="dialog-header">New Folder</div>
+    <div class="dialog-body">
+      <div class="form-group">
+        <label for="newFolderName">Folder Name</label>
+        <input type="text" class="form-control" id="newFolderName">
+      </div>
+    </div>
+    <div class="dialog-footer">
+      <button class="btn-secondary" id="btnCancelCreateFolder">Cancel</button>
+      <button class="btn-primary" id="btnConfirmCreateFolder">Save</button>
+    </div>
+  </dialog>
+
+  <!-- Create/Rename Item Prompt Modal -->
+  <dialog id="modalInputPrompt">
+    <div class="dialog-header" id="inputPromptHeader">Input Required</div>
+    <div class="dialog-body">
+      <div class="form-group">
+        <label id="inputPromptLabel">Value</label>
+        <input type="text" class="form-control" id="inputPromptValue">
+      </div>
+    </div>
+    <div class="dialog-footer">
+      <button class="btn-secondary" id="btnCancelPrompt">Cancel</button>
+      <button class="btn-primary" id="btnConfirmPrompt">Submit</button>
+    </div>
+  </dialog>
+
+  <!-- Environment Manager Modal -->
+  <dialog id="modalEnvManager" style="max-width: 650px;">
+    <div class="dialog-header">Manage Environments</div>
+    <div class="dialog-body" style="flex-direction: row; gap: 20px; height: 350px;">
+      <!-- Environment List -->
+      <div
+        style="width: 180px; border-right: 1px solid var(--border); padding-right: 10px; display: flex; flex-direction: column; gap: 8px;">
+        <button class="sidebar-btn" id="btnEnvCreateNew">+ New Env</button>
+        <div id="envManagerList" style="flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 4px;">
+          <!-- List of envs -->
+        </div>
+      </div>
+      <!-- Environment Variables -->
+      <div id="envVariablesPane" style="flex: 1; display: none; flex-direction: column;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+          <input type="text" class="form-control" id="envNameInput"
+            style="font-weight: 600; padding: 4px 8px; width: 200px;">
+          <button class="sidebar-btn" id="btnEnvDelete"
+            style="background: rgba(239, 68, 68, 0.1); color: var(--accent-red); border-color: rgba(239,68,68,0.2)">Delete
+            Env</button>
+        </div>
+        <div style="flex: 1; overflow-y: auto;">
+          <div class="kv-container" id="envVarsContainer">
+            <div class="kv-header">
+              <div></div>
+              <div>Key</div>
+              <div>Value</div>
+              <div></div>
+            </div>
+            <!-- Env Variable Rows -->
+          </div>
+        </div>
+      </div>
+      <div id="envNoSelectedPane"
+        style="flex: 1; display: flex; justify-content: center; align-items: center; color: var(--text-dim);">
+        Select or create an environment
+      </div>
+    </div>
+    <div class="dialog-footer">
+      <button class="btn-secondary" id="btnEnvClose">Close</button>
+      <button class="btn-primary" id="btnEnvSave" style="display: none;">Save Changes</button>
+    </div>
+  </dialog>
+
+
+
+  <!-- Global Autocomplete Popover -->
+  <div id="autocompleteSuggestions" class="autocomplete-suggestions"></div>
+
+  <!-- Floating Variable Preview Tooltip -->
+  <div id="variablePreviewTooltip" class="variable-preview-tooltip" style="display: none; position: absolute; z-index: 1000; pointer-events: none; padding: 4px 8px; background: var(--bg-tertiary); border: 1px solid var(--accent-blue); border-radius: 4px; font-family: monospace; font-size: 11px; color: var(--text-primary); box-shadow: 0 4px 12px rgba(0,0,0,0.5);"></div>
+
+  <!-- Code Snippet Modal -->
+  <dialog id="modalCodeSnippet" style="max-width: 700px; width: 90%;">
+    <div class="dialog-header" style="display: flex; justify-content: space-between; align-items: center;">
+      <span>Generate Code Snippet</span>
+      <select class="body-subtype-select" id="snippetLanguageSelect">
+        <option value="curl">cURL</option>
+        <option value="fetch">Fetch (JavaScript)</option>
+        <option value="axios">Axios (JavaScript)</option>
+        <option value="python">Python (Requests)</option>
+        <option value="go">Go (HTTP Native)</option>
+        <option value="java">Java (HttpClient)</option>
+      </select>
+    </div>
+    <div class="dialog-body" style="height: 300px; display: flex; flex-direction: column;">
+      <pre id="snippetCodeDisplay" class="mono" style="overflow: auto; flex: 1; padding: 12px; background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: 6px; user-select: text; -webkit-user-select: text; margin: 0; white-space: pre-wrap; word-break: break-all;"></pre>
+    </div>
+    <div class="dialog-footer">
+      <button class="btn-secondary" id="btnCancelSnippet">Close</button>
+      <button class="btn-primary" id="btnCopySnippet">Copy Code</button>
+    </div>
+  </dialog>
+
+  <script src="app.js"></script>
+</body>
+
+</html>

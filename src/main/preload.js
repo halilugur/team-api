@@ -1,0 +1,36 @@
+const { contextBridge, ipcRenderer } = require('electron');
+
+contextBridge.exposeInMainWorld('teamapi', {
+  workspace: {
+    openDialog: () => ipcRenderer.invoke('workspace:openDialog'),
+    createDialog: (name) => ipcRenderer.invoke('workspace:createDialog', name),
+    getMeta: () => ipcRenderer.invoke('workspace:getMeta'),
+    onOpenRequest: (callback) => {
+      const listener = (event) => callback();
+      ipcRenderer.on('workspace:onOpenRequest', listener);
+      return () => ipcRenderer.removeListener('workspace:onOpenRequest', listener);
+    },
+    onNewRequest: (callback) => {
+      const listener = (event) => callback();
+      ipcRenderer.on('workspace:onNewRequest', listener);
+      return () => ipcRenderer.removeListener('workspace:onNewRequest', listener);
+    }
+  },
+  collections: {
+    list: () => ipcRenderer.invoke('collections:list'),
+    get: (id) => ipcRenderer.invoke('collections:get', id),
+    save: (collectionObj) => ipcRenderer.invoke('collections:save', collectionObj),
+    delete: (id) => ipcRenderer.invoke('collections:delete', id)
+  },
+  environments: {
+    list: () => ipcRenderer.invoke('environments:list'),
+    save: (envObj) => ipcRenderer.invoke('environments:save', envObj),
+    delete: (id) => ipcRenderer.invoke('environments:delete', id)
+  },
+  history: {
+    list: () => ipcRenderer.invoke('history:list')
+  },
+  request: {
+    execute: (args) => ipcRenderer.invoke('request:execute', args)
+  }
+});
