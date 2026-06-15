@@ -31,7 +31,7 @@ TeamAPI is a visually premium, file-system-based HTTP API testing client built o
 ### Installation
 Clone the repository and install the project dependencies:
 ```bash
-git clone https://github.com/<your-username>/team-api.git
+git clone https://github.com/halilugur/team-api.git
 cd team-api
 npm install
 ```
