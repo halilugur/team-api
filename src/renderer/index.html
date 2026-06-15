@@ -29,7 +29,7 @@
   <!-- Welcome / Workspace Screen -->
   <div id="welcomeScreen" class="welcome-screen">
     <div class="welcome-logo">TeamAPI</div>
-    <div class="welcome-subtitle">File-system & Git Based HTTP Client</div>
+    <div class="welcome-subtitle">File-system Based HTTP Client</div>
     <div class="welcome-actions">
       <button class="welcome-btn" id="welcomeOpenBtn">
         <svg class="welcome-btn-icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -267,46 +267,7 @@
           <textarea class="editor-textarea mono" id="postScript" placeholder="// Javascript executed after receiving the response..."></textarea>
         </div>
       </div>
-      <!-- Git Conflict Alert View -->
-      <div id="conflictAlertPane" style="display: none; flex-direction: column; flex: 1; padding: 24px; overflow-y: auto; background-color: var(--bg-secondary);">
-        <div class="conflict-title-group">
-          <span class="conflict-warning-icon">⚠️</span>
-          <div class="conflict-header-text">
-            <h2>Git Merge Conflict Detected</h2>
-            <p>This collection file has conflicting changes from a merge or pull. You must resolve these before you can edit or execute requests.</p>
-          </div>
-        </div>
-        
-        <div class="conflict-info-card">
-          <div class="conflict-info-title">Conflicting File Path:</div>
-          <div id="conflictFilePath" class="conflict-file-path">collections/xxxx.json</div>
-        </div>
 
-        <div class="conflict-instructions-title">How to resolve:</div>
-        <ul class="conflict-steps">
-          <li class="conflict-step-item">
-            <span class="conflict-step-num">1</span>
-            <span class="conflict-step-text">Open the file in an external editor (VS Code, cursor, etc.) or resolve using standard git CLI.</span>
-          </li>
-          <li class="conflict-step-item">
-            <span class="conflict-step-num">2</span>
-            <span class="conflict-step-text">Search for standard merge markers like <code>&lt;&lt;&lt;&lt;&lt;&lt;&lt; HEAD</code>, <code>=======</code>, and <code>&gt;&gt;&gt;&gt;&gt;&gt;&gt;</code>.</span>
-          </li>
-          <li class="conflict-step-item">
-            <span class="conflict-step-num">3</span>
-            <span class="conflict-step-text">Choose which changes to keep, delete the conflict markers, and save the file.</span>
-          </li>
-          <li class="conflict-step-item">
-            <span class="conflict-step-num">4</span>
-            <span class="conflict-step-text">Once resolved, click <strong>Reload Collections</strong> below to reload and continue editing.</span>
-          </li>
-        </ul>
-
-        <div class="conflict-actions-bar">
-          <button class="btn-primary" id="btnResolveRefresh">Reload Collections</button>
-          <button class="btn-secondary" id="btnResolveAbort">Close Warning</button>
-        </div>
-      </div>
     </main>
 
     <!-- Right Panel (Response Panel) -->

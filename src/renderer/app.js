@@ -10,7 +10,6 @@ const state = {
   activeEnvId: 'none',        // Active environment ID
   activeEnv: null,            // Pointer to active environment object
   history: [],                // History list
-  gitStatus: null,            // Current git status info
   isSyncingParams: false,     // Flag to prevent infinite sync loops
   expandedNodes: new Set()    // Tree nodes expanded states (collection-id, folder-id)
 };
@@ -343,20 +342,6 @@ function setupEventListeners() {
   document.getElementById('btnEnvDelete').onclick = deleteActiveEnvironment;
   document.getElementById('btnEnvClose').onclick = () => closeDialog('modalEnvManager');
 
-  // Git Conflict Resolution Buttons
-  document.getElementById('btnResolveRefresh').onclick = async () => {
-    await refreshCollections();
-    const col = state.collections.find(c => c.id === state.activeCollectionId);
-    if (col && !col.isConflicted) {
-      setConflictPaneVisible(false);
-      showToast('Collection reloaded successfully (no conflicts found).', 'success');
-    } else {
-      showToast('Conflict still present in the file. Please resolve it first.', 'warning');
-    }
-  };
-  document.getElementById('btnResolveAbort').onclick = () => {
-    setConflictPaneVisible(false);
-  };
 
   // Response Panel actions
   document.getElementById('btnCopyResponse').onclick = copyResponseToClipboard;
@@ -531,78 +516,6 @@ async function refreshHistory() {
   }
 }
 
-async function refreshGitStatus() {
-  if (!state.currentWorkspace) return;
-  try {
-    const git = await window.teamapi.git.status();
-    state.gitStatus = git;
-
-    const badge = document.getElementById('gitStatusBadge');
-    const branchSelector = document.getElementById('gitBranchSelector');
-    const tbBranch = document.getElementById('titlebarBranch');
-    const tbInfo = document.getElementById('titlebarGitInfo');
-    const tbSep = document.getElementById('titlebarSeparator');
-
-    const btnFetch = document.getElementById('gitBtnFetch');
-    const btnPull = document.getElementById('gitBtnPull');
-    const btnCommit = document.getElementById('gitBtnCommit');
-    const btnPush = document.getElementById('gitBtnPush');
-
-    if (git && git.branches && git.branches.current) {
-      badge.style.display = 'flex';
-      if (btnFetch) btnFetch.style.display = 'flex';
-      if (btnPull) btnPull.style.display = 'flex';
-      if (btnCommit) btnCommit.style.display = 'flex';
-      if (btnPush) btnPush.style.display = 'flex';
-
-      if (branchSelector) {
-        branchSelector.innerHTML = '';
-        if (git.branches.all && git.branches.all.length > 0) {
-          git.branches.all.forEach(b => {
-            const opt = document.createElement('option');
-            opt.value = b;
-            opt.textContent = b.replace('remotes/origin/', '');
-            opt.selected = (b === git.branches.current);
-            branchSelector.appendChild(opt);
-          });
-        } else {
-          const opt = document.createElement('option');
-          opt.value = git.branches.current;
-          opt.textContent = git.branches.current;
-          opt.selected = true;
-          branchSelector.appendChild(opt);
-        }
-      }
-
-      tbInfo.style.display = 'inline-block';
-      tbSep.style.display = 'inline-block';
-      tbBranch.textContent = git.branches.current;
-    } else {
-      badge.style.display = 'none';
-      if (btnFetch) btnFetch.style.display = 'none';
-      if (btnPull) btnPull.style.display = 'none';
-      if (btnCommit) btnCommit.style.display = 'none';
-      if (btnPush) btnPush.style.display = 'none';
-
-      tbInfo.style.display = 'none';
-      tbSep.style.display = 'none';
-    }
-  } catch (err) {
-    console.error('Git status error:', err);
-    document.getElementById('gitStatusBadge').style.display = 'none';
-    const btnFetch = document.getElementById('gitBtnFetch');
-    const btnPull = document.getElementById('gitBtnPull');
-    const btnCommit = document.getElementById('gitBtnCommit');
-    const btnPush = document.getElementById('gitBtnPush');
-    if (btnFetch) btnFetch.style.display = 'none';
-    if (btnPull) btnPull.style.display = 'none';
-    if (btnCommit) btnCommit.style.display = 'none';
-    if (btnPush) btnPush.style.display = 'none';
-
-    document.getElementById('titlebarGitInfo').style.display = 'none';
-    document.getElementById('titlebarSeparator').style.display = 'none';
-  }
-}
 
 // Dialog: New Collection
 async function confirmCreateCollection() {
@@ -633,11 +546,7 @@ async function loadCollectionDetails(id) {
     const colObj = await window.teamapi.collections.get(id);
     if (colObj) {
       state.loadedCollections[id] = colObj;
-      if (colObj.isConflicted) {
-        showConflictScreen(colObj);
-      } else {
-        renderCollectionsTree();
-      }
+      renderCollectionsTree();
     }
   } catch (err) {
     showToast('Failed to load collection details: ' + err.message, 'error');
@@ -676,22 +585,12 @@ function renderCollectionsTree() {
     const name = document.createElement('span');
     name.className = 'item-name';
     name.textContent = colSummary.name;
-    if (colSummary.isConflicted) {
-      name.style.color = 'var(--accent-red)';
-      name.style.fontWeight = '600';
-      name.textContent = `⚠️ (Git Conflict) ${colSummary.name.replace('⚠️ (Git Conflict) - ', '')}`;
-      chevron.style.display = 'none'; // hide chevron for conflicted files
-    }
     colHeader.appendChild(name);
 
     colNode.appendChild(colHeader);
 
     // Click handler to toggle expansion
     colHeader.onclick = async (e) => {
-      if (colSummary.isConflicted) {
-        await loadCollectionDetails(colId);
-        return;
-      }
       // Toggle node expand state
       if (isExpanded) {
         state.expandedNodes.delete(colId);
@@ -2334,49 +2233,3 @@ function renderTestResults(tests) {
   });
 }
 
-// Git & Conflict Resolution Helper Functions
-
-
-function setConflictPaneVisible(visible) {
-  const normalElements = [
-    document.querySelector('.main-editor > .url-bar'),
-    document.getElementById('editorTabs'),
-    ...document.querySelectorAll('.main-editor > .tab-content')
-  ];
-  const conflictPane = document.getElementById('conflictAlertPane');
-  if (visible) {
-    normalElements.forEach(el => { if (el) el.style.display = 'none'; });
-    if (conflictPane) conflictPane.style.display = 'flex';
-  } else {
-    const urlBar = document.querySelector('.main-editor > .url-bar');
-    if (urlBar) urlBar.style.display = 'flex';
-    const editorTabs = document.getElementById('editorTabs');
-    if (editorTabs) editorTabs.style.display = 'flex';
-    
-    const activeTabBtn = document.querySelector('#editorTabs .tab-btn.active');
-    if (activeTabBtn) {
-      const activeTabId = activeTabBtn.dataset.tab;
-      document.querySelectorAll('.main-editor > .tab-content').forEach(el => {
-        if (el.id === activeTabId) {
-          el.style.display = 'flex';
-        } else {
-          el.style.display = 'none';
-        }
-      });
-    }
-    if (conflictPane) conflictPane.style.display = 'none';
-  }
-}
-
-function showConflictScreen(colObj) {
-  setConflictPaneVisible(true);
-  const pathEl = document.getElementById('conflictFilePath');
-  if (pathEl) {
-    pathEl.textContent = colObj.filePath || `collections/${colObj.id}.json`;
-  }
-  
-  state.activeCollectionId = colObj.id;
-  state.activeRequestId = null;
-  state.activeRequest = null;
-  document.querySelectorAll('.request-item.active').forEach(el => el.classList.remove('active'));
-}

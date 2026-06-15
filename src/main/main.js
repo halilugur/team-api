@@ -155,14 +155,6 @@ ipcMain.handle('workspace:createDialog', async (event, name) => {
     fs.mkdirSync(path, { recursive: true });
   }
 
-  // Init git repository
-  try {
-    const git = simpleGit(path);
-    await git.init();
-  } catch (err) {
-    console.error('Failed to init git:', err);
-  }
-
   // Create workspace metadata
   const metaDir = pathModule.join(path, '.teamapi');
   const metaPath = pathModule.join(metaDir, 'meta.json');
@@ -206,29 +198,12 @@ ipcMain.handle('collections:list', async () => {
     if (file.endsWith('.json')) {
       try {
         const content = fs.readFileSync(pathModule.join(colDir, file), 'utf8');
-        const isConflicted = content.includes('<<<<<<<') || content.includes('=======') || content.includes('>>>>>>>');
-        if (isConflicted) {
-          let id = file.replace('.json', '');
-          let name = `⚠️ (Git Conflict) - ${file}`;
-          try {
-            const nameMatch = content.match(/"name":\s*"([^"]+)"/);
-            if (nameMatch) name = nameMatch[1];
-          } catch (e) {}
-          list.push({
-            id: id,
-            name: name,
-            isConflicted: true,
-            requestCount: 0
-          });
-        } else {
-          const col = JSON.parse(content);
-          list.push({
-            id: col.id,
-            name: col.name,
-            isConflicted: false,
-            requestCount: col.requests ? col.requests.length : 0
-          });
-        }
+        const col = JSON.parse(content);
+        list.push({
+          id: col.id,
+          name: col.name,
+          requestCount: col.requests ? col.requests.length : 0
+        });
       } catch (e) {
         console.error('Error reading collection file:', file, e);
       }
@@ -243,16 +218,6 @@ ipcMain.handle('collections:get', async (event, id) => {
   if (fs.existsSync(filePath)) {
     try {
       const content = fs.readFileSync(filePath, 'utf8');
-      const isConflicted = content.includes('<<<<<<<') || content.includes('=======') || content.includes('>>>>>>>');
-      if (isConflicted) {
-        return {
-          id: id,
-          isConflicted: true,
-          name: `⚠️ (Git Conflict) - ${id}.json`,
-          filePath: filePath,
-          rawContent: content
-        };
-      }
       return JSON.parse(content);
     } catch (e) {
       return null;

@@ -1,7 +1,7 @@
 {
   "name": "team-api",
   "version": "1.0.0",
-  "description": "File-system based HTTP API testing client with Git integration.",
+  "description": "File-system based HTTP API testing client.",
   "author": "TeamAPI",
   "main": "src/main/main.js",
   "scripts": {
@@ -12,7 +12,6 @@
   },
   "dependencies": {
     "axios": "^1.9.0",
-    "simple-git": "^3.27.0",
     "uuid": "^11.1.0"
   },
   "devDependencies": {
