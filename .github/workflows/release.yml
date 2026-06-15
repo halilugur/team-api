@@ -13,7 +13,7 @@ jobs:
     name: Build & Release TeamAPI
     runs-on: ${{ matrix.os }}
     strategy:
-      fail-fast: false   # don't cancel other OS builds if one fails
+      fail-fast: false
       matrix:
         os: [macos-latest, ubuntu-latest, windows-latest]
 
@@ -30,24 +30,17 @@ jobs:
       - name: Install Dependencies
         run: npm ci
 
-      # ── Per-OS build steps (avoids bash conditional issues on Windows) ──
-
       - name: Build (macOS)
         if: runner.os == 'macOS'
-        run: npx electron-builder --mac dmg
+        run: npx electron-builder --mac dmg --publish never
 
       - name: Build (Linux)
         if: runner.os == 'Linux'
-        run: npx electron-builder --linux AppImage
+        run: npx electron-builder --linux AppImage --publish never
 
       - name: Build (Windows)
         if: runner.os == 'Windows'
-        run: npx electron-builder --win nsis msi zip
-
-      # ── Debug: print what was actually produced ──
-      - name: List dist/ contents
-        run: ls -R dist/
-        shell: bash
+        run: npx electron-builder --win nsis msi zip --publish never
 
       - name: Upload Artifacts to GitHub Release
         uses: softprops/action-gh-release@v2
