@@ -4,6 +4,7 @@
   "version": "1.0.1",
   "description": "File-system based HTTP API testing client.",
   "author": "TeamAPI",
+  "license": "Apache-2.0",
   "main": "src/main/main.js",
   "scripts": {
     "start": "electron .",
