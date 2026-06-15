@@ -827,6 +827,8 @@ function showWelcomeScreen() {
               await loadWorkspace(ws);
             } else {
               showToast('Workspace path no longer exists on disk', 'error');
+              localStorage.removeItem('lastWorkspacePath');
+              showWelcomeScreen();
             }
           } catch (err) {
             showToast('Failed to open workspace: ' + err.message, 'error');

@@ -1,5 +1,7 @@
 # TeamAPI
 
+![TeamAPI Screenshot](assets/home.png)
+
 TeamAPI is a visually premium, file-system-based HTTP API testing client built on Electron. It runs entirely locally — collections and environments are stored as plain JSON files on disk, so any external tool (editors, sync services, scripts) can read and modify them freely. No cloud, no vendor lock-in, no proprietary database.
 
 ---
