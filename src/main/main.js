@@ -1,4 +1,6 @@
 const { app, BrowserWindow, ipcMain, dialog, Menu } = require('electron');
+app.name = 'TeamAPI';
+app.setName('TeamAPI');
 const pathModule = require('path');
 const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
@@ -7,6 +9,51 @@ const vm = require('vm');
 
 let mainWindow = null;
 let currentWorkspace = null;
+let activeWatchers = [];
+
+function setupWorkspaceWatcher(path) {
+  // Close any existing watchers
+  activeWatchers.forEach(w => {
+    try {
+      w.close();
+    } catch (e) {
+      console.error('Error closing watcher:', e);
+    }
+  });
+  activeWatchers = [];
+
+  if (!path) return;
+
+  const collectionsPath = pathModule.join(path, 'collections');
+  const environmentsPath = pathModule.join(path, 'environments');
+
+  let debounceTimeout = null;
+  const notifyChanged = (eventType, filename) => {
+    if (debounceTimeout) clearTimeout(debounceTimeout);
+    debounceTimeout = setTimeout(() => {
+      if (mainWindow) {
+        mainWindow.webContents.send('workspace:changed', { eventType, filename });
+      }
+    }, 200);
+  };
+
+  try {
+    if (fs.existsSync(collectionsPath)) {
+      const colWatcher = fs.watch(collectionsPath, (eventType, filename) => {
+        notifyChanged(eventType, 'collections/' + filename);
+      });
+      activeWatchers.push(colWatcher);
+    }
+    if (fs.existsSync(environmentsPath)) {
+      const envWatcher = fs.watch(environmentsPath, (eventType, filename) => {
+        notifyChanged(eventType, 'environments/' + filename);
+      });
+      activeWatchers.push(envWatcher);
+    }
+  } catch (err) {
+    console.error('Error starting fs.watch:', err);
+  }
+}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -28,10 +75,37 @@ function createWindow() {
   // mainWindow.webContents.openDevTools();
 
   // Create Application Menu
-  const template = [
+  const template = [];
+
+  if (process.platform === 'darwin') {
+    template.push({
+      label: app.name,
+      submenu: [
+        { role: 'about' },
+        { type: 'separator' },
+        { role: 'services' },
+        { type: 'separator' },
+        { role: 'hide' },
+        { role: 'hideOthers' },
+        { role: 'unhide' },
+        { type: 'separator' },
+        { role: 'quit' }
+      ]
+    });
+  }
+
+  template.push(
     {
       label: 'File',
       submenu: [
+        {
+          label: 'Go to Home',
+          accelerator: 'CmdOrCtrl+Shift+H',
+          click: () => {
+            if (mainWindow) mainWindow.webContents.send('workspace:onGoToHome');
+          }
+        },
+        { type: 'separator' },
         {
           label: 'New Workspace',
           click: () => {
@@ -74,7 +148,7 @@ function createWindow() {
         { role: 'togglefullscreen' }
       ]
     }
-  ];
+  );
 
   const menu = Menu.buildFromTemplate(template);
   Menu.setApplicationMenu(menu);
@@ -108,6 +182,37 @@ function interpolate(text, vars) {
 // IPC Handlers
 
 // Workspace
+ipcMain.handle('workspace:openPath', async (event, path) => {
+  if (!path || !fs.existsSync(path)) return null;
+  const name = pathModule.basename(path);
+  currentWorkspace = path;
+
+  // Initialize workspace directories if missing
+  const metaDir = pathModule.join(path, '.teamapi');
+  const metaPath = pathModule.join(metaDir, 'meta.json');
+  if (!fs.existsSync(metaDir)) {
+    fs.mkdirSync(metaDir, { recursive: true });
+  }
+  if (!fs.existsSync(metaPath)) {
+    fs.writeFileSync(metaPath, JSON.stringify({
+      name,
+      version: '1.0.0',
+      createdAt: new Date().toISOString()
+    }, null, 2));
+  }
+
+  // Ensure collections and environments dirs exist
+  const collectionsDir = pathModule.join(path, 'collections');
+  if (!fs.existsSync(collectionsDir)) fs.mkdirSync(collectionsDir, { recursive: true });
+
+  const envsDir = pathModule.join(path, 'environments');
+  if (!fs.existsSync(envsDir)) fs.mkdirSync(envsDir, { recursive: true });
+
+  setupWorkspaceWatcher(path);
+
+  return { path, name };
+});
+
 ipcMain.handle('workspace:openDialog', async (event, defaultPath) => {
   const result = await dialog.showOpenDialog(mainWindow, {
     properties: ['openDirectory'],
@@ -138,6 +243,8 @@ ipcMain.handle('workspace:openDialog', async (event, defaultPath) => {
 
   const envsDir = pathModule.join(path, 'environments');
   if (!fs.existsSync(envsDir)) fs.mkdirSync(envsDir, { recursive: true });
+
+  setupWorkspaceWatcher(path);
 
   return { path, name };
 });
@@ -170,6 +277,7 @@ ipcMain.handle('workspace:createDialog', async (event, name) => {
   fs.mkdirSync(pathModule.join(path, 'environments'), { recursive: true });
 
   currentWorkspace = path;
+  setupWorkspaceWatcher(path);
   return { path, name };
 });
 
@@ -514,7 +622,7 @@ ipcMain.handle('request:execute', async (event, { request: requestObj, envVars }
       url: interpolatedUrl,
       headers: requestHeaders,
       data: bodyData,
-      transformResponse: [(data) => data], // Get raw string
+      responseType: 'arraybuffer', // always fetch as buffer to prevent corruption of images/binary
       validateStatus: () => true, // Accept all response status codes
       timeout: 15000 // 15s timeout
     });
@@ -537,14 +645,30 @@ ipcMain.handle('request:execute', async (event, { request: requestObj, envVars }
     };
   }
 
+  // Parse response body based on content-type
+  const contentType = (response.headers && response.headers['content-type']) || '';
+  const isImage = contentType.toLowerCase().startsWith('image/');
+  
+  let isBinary = false;
+  let responseBody = '';
+  
+  if (response.data) {
+    if (isImage) {
+      responseBody = Buffer.from(response.data).toString('base64');
+      isBinary = true;
+    } else {
+      responseBody = Buffer.from(response.data).toString('utf8');
+    }
+  }
+
   // 4. Run Post-Request Script
   if (requestObj.postScript) {
     pm.response = {
       code: response.status,
-      body: response.data,
+      body: responseBody,
       json: () => {
         try {
-          return JSON.parse(response.data);
+          return JSON.parse(responseBody);
         } catch (e) {
           return null;
         }
@@ -597,8 +721,10 @@ ipcMain.handle('request:execute', async (event, { request: requestObj, envVars }
     status: response.status,
     statusText: response.statusText,
     headers: response.headers,
-    body: response.data,
-    size: response.data ? Buffer.byteLength(response.data, 'utf8') : 0,
+    body: responseBody,
+    isBinary: isBinary,
+    contentType: contentType,
+    size: response.data ? response.data.length : 0,
     duration,
     scriptLog,
     tests,

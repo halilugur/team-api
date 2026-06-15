@@ -11,7 +11,29 @@ const state = {
   activeEnv: null,            // Pointer to active environment object
   history: [],                // History list
   isSyncingParams: false,     // Flag to prevent infinite sync loops
-  expandedNodes: new Set()    // Tree nodes expanded states (collection-id, folder-id)
+  expandedNodes: new Set(),   // Tree nodes expanded states (collection-id, folder-id)
+  lastResponseText: '',
+  lastResponseIsBinary: false,
+  lastResponseContentType: '',
+  
+  // Tabs system state
+  tabs: [],                   // Open tabs list [{ id, type, name, request, collectionId }]
+  activeTabId: null           // Active tab ID
+};
+
+// Map to track self-initiated file writes to ignore them in watch events (prevents feedback loops)
+const selfWrittenFiles = new Map();
+
+const originalSaveCollection = window.teamapi.collections.save;
+window.teamapi.collections.save = async function(col) {
+  selfWrittenFiles.set(`collections/${col.id}.json`, Date.now());
+  return await originalSaveCollection(col);
+};
+
+const originalSaveEnvironment = window.teamapi.environments.save;
+window.teamapi.environments.save = async function(env) {
+  selfWrittenFiles.set(`environments/${env.id}.json`, Date.now());
+  return await originalSaveEnvironment(env);
 };
 
 // Helper: variable interpolator
@@ -21,6 +43,127 @@ function interpolate(text, vars) {
     const trimmedKey = key.trim();
     return vars.hasOwnProperty(trimmedKey) ? vars[trimmedKey] : match;
   });
+}
+
+// Helper: parse cURL command to request properties
+function parseCurlCommand(curlString) {
+  const tokens = [];
+  let current = '';
+  let inDoubleQuote = false;
+  let inSingleQuote = false;
+
+  for (let i = 0; i < curlString.length; i++) {
+    const char = curlString[i];
+    if (char === '"' && !inSingleQuote) {
+      inDoubleQuote = !inDoubleQuote;
+    } else if (char === "'" && !inDoubleQuote) {
+      inSingleQuote = !inSingleQuote;
+    } else if (char === ' ' && !inDoubleQuote && !inSingleQuote) {
+      if (current) {
+        tokens.push(current);
+        current = '';
+      }
+    } else if (char === '\\' && i + 1 < curlString.length && (curlString[i+1] === '\n' || curlString[i+1] === '\r')) {
+      if (curlString[i+1] === '\r') i++;
+      i++;
+    } else {
+      current += char;
+    }
+  }
+  if (current) tokens.push(current);
+
+  const cleanTokens = tokens.map(t => {
+    let s = t.trim();
+    if (s.startsWith('"') && s.endsWith('"')) s = s.slice(1, -1);
+    else if (s.startsWith("'") && s.endsWith("'")) s = s.slice(1, -1);
+    return s;
+  });
+
+  let method = 'GET';
+  let url = '';
+  const headers = [];
+  let body = '';
+  let auth = { type: 'none' };
+
+  for (let i = 1; i < cleanTokens.length; i++) {
+    const token = cleanTokens[i];
+    if (token === '-X' || token === '--request') {
+      method = cleanTokens[++i].toUpperCase();
+    } else if (token === '-H' || token === '--header') {
+      const headerVal = cleanTokens[++i];
+      const colonIndex = headerVal.indexOf(':');
+      if (colonIndex !== -1) {
+        const key = headerVal.substring(0, colonIndex).trim();
+        const value = headerVal.substring(colonIndex + 1).trim();
+        headers.push({ key, value, enabled: true });
+      }
+    } else if (token === '-d' || token === '--data' || token === '--data-raw' || token === '--data-binary') {
+      body = cleanTokens[++i];
+      if (method === 'GET') method = 'POST';
+    } else if (token === '-u' || token === '--user') {
+      const userPass = cleanTokens[++i];
+      const parts = userPass.split(':');
+      auth = {
+        type: 'basic',
+        username: parts[0] || '',
+        password: parts[1] || ''
+      };
+    } else if (token.startsWith('http://') || token.startsWith('https://') || token.includes('localhost') || token.includes('127.0.0.1')) {
+      url = token;
+    }
+  }
+
+  if (!url) {
+    for (let i = 1; i < cleanTokens.length; i++) {
+      const token = cleanTokens[i];
+      const prev = cleanTokens[i - 1];
+      if (!token.startsWith('-') && !['-X', '--request', '-H', '--header', '-d', '--data', '--data-raw', '--data-binary', '-u', '--user'].includes(prev)) {
+        url = token;
+        break;
+      }
+    }
+  }
+
+  return { method, url, headers, body, auth };
+}
+
+// Helper: query JSON object using a simple JSONPath-like query (e.g. $.items[*].name)
+function queryJson(obj, query) {
+  if (!query || query === '$') return obj;
+
+  const parts = query.replace(/^\$\.?/, '').split('.');
+  let current = obj;
+
+  for (let part of parts) {
+    if (current === undefined || current === null) return undefined;
+
+    const arrayMatch = part.match(/^([^\[]+)\[([^\]]+)\]$/);
+    if (arrayMatch) {
+      const key = arrayMatch[1];
+      const indexStr = arrayMatch[2];
+      current = current[key];
+      if (current === undefined || current === null) return undefined;
+
+      if (indexStr === '*') {
+        const remainingQuery = parts.slice(parts.indexOf(part) + 1).join('.');
+        if (!remainingQuery) return current;
+        if (Array.isArray(current)) {
+          return current.map(item => queryJson(item, remainingQuery)).filter(x => x !== undefined);
+        }
+        return undefined;
+      } else {
+        const index = parseInt(indexStr, 10);
+        if (Array.isArray(current)) {
+          current = current[index];
+        } else {
+          return undefined;
+        }
+      }
+    } else {
+      current = current[part];
+    }
+  }
+  return current;
 }
 
 // Auto-save debounce timer
@@ -93,30 +236,54 @@ window.addEventListener('DOMContentLoaded', async () => {
   setupEventListeners();
   setupAutocompleteForScripts();
 
-  // Load last workspace from localStorage if saved
-  const lastPath = localStorage.getItem('lastWorkspacePath');
-  if (lastPath) {
-    document.getElementById('welcomeRecent').style.display = 'block';
-    
-    // Extract folder name safely
-    const separator = lastPath.includes('\\') ? '\\' : '/';
-    const parts = lastPath.split(separator);
-    const folderName = parts[parts.length - 1] || lastPath;
-    
-    const itemEl = document.getElementById('recentWorkspaceItem');
-    if (itemEl) {
-      itemEl.innerHTML = `
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--accent-blue); flex-shrink: 0; margin-right: 4px;">
-          <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
-        </svg>
-        <span style="font-weight: 700; color: var(--text-primary); margin-right: 8px;">${folderName}</span>
-        <span style="color: var(--text-muted); font-size: 11px; font-weight: 400; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; text-align: left;">${lastPath}</span>
-        <svg class="recent-arrow" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="color: var(--text-dim); transition: transform 0.2s ease; margin-left: 4px;">
-          <polyline points="9 18 15 12 9 6"></polyline>
-        </svg>
-      `;
-      itemEl.onclick = () => selectWorkspace(lastPath);
-    }
+  showWelcomeScreen();
+
+  // Register workspace change watcher listener
+  if (window.teamapi && window.teamapi.workspace && window.teamapi.workspace.onWorkspaceChanged) {
+    window.teamapi.workspace.onWorkspaceChanged(async (data) => {
+      const filename = data.filename || '';
+      
+      const lastWriteTime = selfWrittenFiles.get(filename);
+      if (lastWriteTime && (Date.now() - lastWriteTime < 1200)) {
+        return;
+      }
+
+      if (filename.startsWith('collections/')) {
+        await refreshCollections();
+        
+        const parts = filename.split('/');
+        const fileBasename = parts[parts.length - 1];
+        const colId = fileBasename.replace('.json', '');
+        
+        if (state.activeCollectionId === colId) {
+          await loadCollectionDetails(colId);
+          const colDetail = state.loadedCollections[colId];
+          if (colDetail && state.activeRequestId) {
+            const currentReq = colDetail.requests.find(r => r.id === state.activeRequestId);
+            if (currentReq && state.activeRequest) {
+              const changed = currentReq.url !== state.activeRequest.url ||
+                              currentReq.method !== state.activeRequest.method ||
+                              (currentReq.body && currentReq.body.content) !== (state.activeRequest.body && state.activeRequest.body.content);
+              if (changed) {
+                showToast(`Request updated on disk. Click standard reload if needed.`, 'info');
+              }
+            }
+          }
+        }
+        renderCollectionsTree();
+      } else if (filename.startsWith('environments/')) {
+        await refreshEnvironments();
+        populateEnvironmentDropdown();
+        
+        const parts = filename.split('/');
+        const fileBasename = parts[parts.length - 1];
+        const envId = fileBasename.replace('.json', '');
+        if (state.activeEnvId === envId) {
+          state.activeEnv = state.environments.find(env => env.id === envId) || null;
+          showToast(`Active environment was updated on disk.`, 'info');
+        }
+      }
+    });
   }
 });
 
@@ -125,7 +292,17 @@ function setupEventListeners() {
   // Welcome page buttons
   document.getElementById('welcomeOpenBtn').onclick = () => selectWorkspace();
   document.getElementById('welcomeNewBtn').onclick = () => openCreateWorkspaceModal();
-  document.getElementById('btnChangeWorkspace').onclick = () => selectWorkspace();
+  document.getElementById('btnChangeWorkspace').onclick = () => showWelcomeScreen();
+
+  const welcomeCloseBtn = document.getElementById('welcomeCloseBtn');
+  if (welcomeCloseBtn) {
+    welcomeCloseBtn.onclick = () => {
+      const welcomeScreen = document.getElementById('welcomeScreen');
+      if (welcomeScreen) {
+        welcomeScreen.style.display = 'none';
+      }
+    };
+  }
 
   // Dialog actions
   document.getElementById('btnCancelCreateWorkspace').onclick = () => closeDialog('modalCreateWorkspace');
@@ -139,8 +316,82 @@ function setupEventListeners() {
   // Sidebar actions
   document.getElementById('btnAddCollection').onclick = () => openDialog('modalCreateCollection');
 
+  const btnNewRequestTab = document.getElementById('btnNewRequestTab');
+  if (btnNewRequestTab) {
+    btnNewRequestTab.onclick = createNewTab;
+  }
+
+  const placeholderNewTabBtn = document.getElementById('placeholderNewTabBtn');
+  if (placeholderNewTabBtn) {
+    placeholderNewTabBtn.onclick = createNewTab;
+  }
+
+  const btnToggleSidebar = document.getElementById('btnToggleSidebar');
+  if (btnToggleSidebar) {
+    btnToggleSidebar.onclick = () => {
+      const sidebar = document.querySelector('.sidebar');
+      const isCollapsed = sidebar.classList.toggle('collapsed');
+      localStorage.setItem('sidebarCollapsed', isCollapsed);
+    };
+  }
+
+  window.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === '\\') {
+      e.preventDefault();
+      const btn = document.getElementById('btnToggleSidebar');
+      if (btn && btn.style.display !== 'none') {
+        btn.click();
+      }
+    }
+  });
+
   // URL Bar & SEND Action
-  document.getElementById('requestUrl').oninput = syncUrlToParams;
+  document.getElementById('requestUrl').oninput = (e) => {
+    const val = e.target.value.trim();
+    if (val.startsWith('curl ')) {
+      try {
+        const parsed = parseCurlCommand(e.target.value);
+        if (parsed) {
+          if (state.activeRequest) {
+            state.activeRequest.method = parsed.method;
+            state.activeRequest.url = parsed.url;
+            state.activeRequest.headers = parsed.headers;
+            state.activeRequest.auth = parsed.auth;
+            
+            if (parsed.body) {
+              state.activeRequest.body = {
+                type: 'raw',
+                subType: 'json',
+                content: parsed.body,
+                formData: []
+              };
+              const contentTypeHeader = parsed.headers.find(h => h.key.toLowerCase() === 'content-type');
+              if (contentTypeHeader) {
+                const cVal = contentTypeHeader.value.toLowerCase();
+                if (cVal.includes('json')) state.activeRequest.body.subType = 'json';
+                else if (cVal.includes('xml')) state.activeRequest.body.subType = 'xml';
+                else if (cVal.includes('html')) state.activeRequest.body.subType = 'html';
+                else if (cVal.includes('javascript')) state.activeRequest.body.subType = 'javascript';
+                else state.activeRequest.body.subType = 'text';
+              }
+            } else {
+              state.activeRequest.body = { type: 'none', content: '', formData: [] };
+            }
+            
+            loadRequestIntoEditor(state.activeCollectionId, state.activeRequestId);
+            showToast('Parsed cURL command successfully!', 'success');
+            queueSave();
+          } else {
+            showToast('Open/create a request first to import cURL.', 'warning');
+          }
+        }
+      } catch (err) {
+        showToast('Failed to parse cURL command: ' + err.message, 'error');
+      }
+    } else {
+      syncUrlToParams();
+    }
+  };
   document.getElementById('btnSend').onclick = executeRequest;
 
   // Send request with Ctrl+Enter shortcut
@@ -328,6 +579,7 @@ function setupEventListeners() {
   document.getElementById('requestMethod').onchange = (e) => {
     if (state.activeRequest) {
       state.activeRequest.method = e.target.value;
+      updateActiveTabTitle();
       queueSave();
       refreshCollectionSidebar();
     }
@@ -351,9 +603,66 @@ function setupEventListeners() {
     btn.onclick = (e) => {
       document.querySelectorAll('#prettyRawToggle .toggle-btn').forEach(b => b.classList.remove('active'));
       e.target.classList.add('active');
-      renderResponseBody(state.lastResponseText, e.target.dataset.mode);
+      
+      const query = document.getElementById('responseJsonPathInput').value.trim();
+      if (query && (e.target.dataset.mode === 'pretty' || e.target.dataset.mode === 'raw')) {
+        document.getElementById('responseJsonPathInput').dispatchEvent(new Event('input'));
+      } else {
+        renderResponseBody(state.lastResponseText, e.target.dataset.mode);
+      }
     };
   });
+
+  // JSONPath Filter input listener
+  const jsonPathInput = document.getElementById('responseJsonPathInput');
+  const clearJsonPathBtn = document.getElementById('btnClearJsonPath');
+
+  if (jsonPathInput) {
+    jsonPathInput.oninput = (e) => {
+      const query = e.target.value.trim();
+      const activeMode = document.querySelector('#prettyRawToggle .toggle-btn.active').dataset.mode;
+
+      if (clearJsonPathBtn) {
+        clearJsonPathBtn.style.display = query ? 'block' : 'none';
+      }
+
+      if (!query || !state.lastResponseText) {
+        renderResponseBody(state.lastResponseText, activeMode);
+        return;
+      }
+
+      try {
+        const parsed = JSON.parse(state.lastResponseText);
+        const filtered = queryJson(parsed, query);
+        const display = document.getElementById('responseBodyDisplay');
+        display.innerHTML = '';
+
+        if (filtered === undefined) {
+          display.innerHTML = '<div style="color: var(--text-dim); text-align: center; margin-top: 40px;">No match found for this JSONPath query</div>';
+        } else {
+          const pre = document.createElement('pre');
+          pre.className = 'mono';
+          if (activeMode === 'pretty') {
+            pre.innerHTML = syntaxHighlightJson(JSON.stringify(filtered, null, 2));
+          } else {
+            pre.textContent = JSON.stringify(filtered, null, 2);
+          }
+          display.appendChild(pre);
+        }
+      } catch (err) {
+        renderResponseBody(state.lastResponseText, activeMode);
+      }
+    };
+  }
+
+  if (clearJsonPathBtn) {
+    clearJsonPathBtn.onclick = () => {
+      jsonPathInput.value = '';
+      clearJsonPathBtn.style.display = 'none';
+      const activeMode = document.querySelector('#prettyRawToggle .toggle-btn.active').dataset.mode;
+      renderResponseBody(state.lastResponseText, activeMode);
+    };
+  }
 
   // Global Context Menu closer
   window.addEventListener('click', hideContextMenu);
@@ -379,6 +688,55 @@ function setupEventListeners() {
   window.teamapi.workspace.onNewRequest(() => {
     openCreateWorkspaceModal();
   });
+  window.teamapi.workspace.onGoToHome(() => {
+    showWelcomeScreen();
+  });
+
+  // Import Collection Dialog listeners
+  const btnImport = document.getElementById('btnImport');
+  if (btnImport) {
+    btnImport.onclick = () => {
+      document.getElementById('importFileInput').value = '';
+      document.getElementById('importTextContent').value = '';
+      openDialog('modalImportCollection');
+    };
+  }
+
+  document.getElementById('btnCancelImport').onclick = () => closeDialog('modalImportCollection');
+
+  document.getElementById('btnConfirmImport').onclick = async () => {
+    const fileInput = document.getElementById('importFileInput');
+    const textContent = document.getElementById('importTextContent').value.trim();
+
+    try {
+      if (fileInput.files.length > 0) {
+        const file = fileInput.files[0];
+        const reader = new FileReader();
+        reader.onload = async (e) => {
+          try {
+            await importCollection(e.target.result);
+            closeDialog('modalImportCollection');
+            showToast('Collection imported successfully!', 'success');
+            await refreshCollections();
+            renderCollectionsTree();
+          } catch (err) {
+            showToast('Import failed: ' + err.message, 'error');
+          }
+        };
+        reader.readAsText(file);
+      } else if (textContent) {
+        await importCollection(textContent);
+        closeDialog('modalImportCollection');
+        showToast('Collection imported successfully!', 'success');
+        await refreshCollections();
+        renderCollectionsTree();
+      } else {
+        showToast('Please select a file or paste JSON content to import.', 'warning');
+      }
+    } catch (err) {
+      showToast('Import failed: ' + err.message, 'error');
+    }
+  };
 }
 
 // Dialog Helpers using native `<dialog>` HTML5 elements
@@ -428,6 +786,59 @@ function openPromptDialog(title, label, defaultValue, callback) {
   };
 }
 
+function showWelcomeScreen() {
+  const welcomeScreen = document.getElementById('welcomeScreen');
+  if (!welcomeScreen) return;
+  
+  welcomeScreen.style.display = 'flex';
+  
+  // Show close/back button if there is a loaded workspace
+  const backBtn = document.getElementById('welcomeCloseBtn');
+  if (backBtn) {
+    backBtn.style.display = state.currentWorkspace ? 'flex' : 'none';
+  }
+
+  const lastPath = localStorage.getItem('lastWorkspacePath');
+  const recentEl = document.getElementById('welcomeRecent');
+  if (recentEl) {
+    if (lastPath) {
+      recentEl.style.display = 'flex';
+      
+      const separator = lastPath.includes('\\') ? '\\' : '/';
+      const parts = lastPath.split(separator);
+      const folderName = parts[parts.length - 1] || lastPath;
+      
+      const itemEl = document.getElementById('recentWorkspaceItem');
+      if (itemEl) {
+        itemEl.innerHTML = `
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--accent-blue); flex-shrink: 0; margin-right: 4px;">
+            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+          </svg>
+          <span style="font-weight: 700; color: var(--text-primary); margin-right: 8px;">${folderName}</span>
+          <span style="color: var(--text-muted); font-size: 11px; font-weight: 400; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; text-align: left;">${lastPath}</span>
+          <svg class="recent-arrow" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="color: var(--text-dim); transition: transform 0.2s ease; margin-left: 4px;">
+            <polyline points="9 18 15 12 9 6"></polyline>
+          </svg>
+        `;
+        itemEl.onclick = async () => {
+          try {
+            const ws = await window.teamapi.workspace.openPath(lastPath);
+            if (ws) {
+              await loadWorkspace(ws);
+            } else {
+              showToast('Workspace path no longer exists on disk', 'error');
+            }
+          } catch (err) {
+            showToast('Failed to open workspace: ' + err.message, 'error');
+          }
+        };
+      }
+    } else {
+      recentEl.style.display = 'none';
+    }
+  }
+}
+
 // Workspace Dialog Handlers
 async function selectWorkspace(defaultPath = null) {
   try {
@@ -463,6 +874,14 @@ async function confirmCreateWorkspace() {
   }
 }
 
+// Helper to save expanded tree nodes
+function saveExpandedNodes() {
+  if (state.currentWorkspace) {
+    const list = Array.from(state.expandedNodes);
+    localStorage.setItem(`expandedNodes:${state.currentWorkspace.path}`, JSON.stringify(list));
+  }
+}
+
 // Loads a workspace
 async function loadWorkspace(ws) {
   state.currentWorkspace = ws;
@@ -470,10 +889,45 @@ async function loadWorkspace(ws) {
   state.activeCollectionId = null;
   state.activeRequestId = null;
   state.activeRequest = null;
+  
+  // Clear open tabs on workspace change
+  state.tabs = [];
+  state.activeTabId = null;
+  renderRequestTabs();
+  
+  const placeholderEl = document.getElementById('noRequestPlaceholder');
+  const mainContentEl = document.getElementById('editorMainContent');
+  if (placeholderEl && mainContentEl) {
+    placeholderEl.style.display = 'flex';
+    mainContentEl.style.display = 'none';
+  }
+  
+  // Rehydrate expanded tree nodes
   state.expandedNodes.clear();
+  try {
+    const savedNodes = localStorage.getItem(`expandedNodes:${ws.path}`);
+    if (savedNodes) {
+      const parsed = JSON.parse(savedNodes);
+      if (Array.isArray(parsed)) {
+        parsed.forEach(id => state.expandedNodes.add(id));
+      }
+    }
+  } catch (err) {
+    console.error('Failed to parse expandedNodes:', err);
+  }
+
+  // Restore sidebar collapse state
+  const sidebar = document.querySelector('.sidebar');
+  const sidebarCollapsed = localStorage.getItem('sidebarCollapsed') === 'true';
+  if (sidebarCollapsed) {
+    sidebar.classList.add('collapsed');
+  } else {
+    sidebar.classList.remove('collapsed');
+  }
 
   // Hide welcome overlay
   document.getElementById('welcomeScreen').style.display = 'none';
+  document.getElementById('btnToggleSidebar').style.display = 'flex';
 
   // Update layout header
   document.getElementById('workspaceTitle').textContent = ws.name;
@@ -484,6 +938,16 @@ async function loadWorkspace(ws) {
 
   // Load data components
   await refreshCollections();
+
+  // Pre-load details for expanded collections
+  if (state.collections && state.collections.length > 0) {
+    for (const col of state.collections) {
+      if (state.expandedNodes.has(col.id)) {
+        await loadCollectionDetails(col.id);
+      }
+    }
+  }
+
   await refreshEnvironments();
   await refreshHistory();
 }
@@ -501,6 +965,19 @@ async function refreshCollections() {
 async function refreshEnvironments() {
   try {
     state.environments = await window.teamapi.environments.list();
+    
+    // Resolve active environment for the current workspace
+    if (state.currentWorkspace) {
+      const wsEnvKey = `activeEnvId:${state.currentWorkspace.path}`;
+      const savedEnvId = localStorage.getItem(wsEnvKey) || 'none';
+      const envExists = state.environments.some(env => env.id === savedEnvId);
+      state.activeEnvId = envExists ? savedEnvId : 'none';
+      state.activeEnv = state.environments.find(env => env.id === state.activeEnvId) || null;
+    } else {
+      state.activeEnvId = 'none';
+      state.activeEnv = null;
+    }
+
     populateEnvironmentDropdown();
   } catch (err) {
     showToast('Failed to list environments: ' + err.message, 'error');
@@ -534,6 +1011,7 @@ async function confirmCreateCollection() {
     await refreshCollections();
     // Auto-expand new collection
     state.expandedNodes.add(saved.id);
+    saveExpandedNodes();
     await loadCollectionDetails(saved.id);
   } catch (err) {
     showToast('Failed to save collection: ' + err.message, 'error');
@@ -594,9 +1072,11 @@ function renderCollectionsTree() {
       // Toggle node expand state
       if (isExpanded) {
         state.expandedNodes.delete(colId);
+        saveExpandedNodes();
         renderCollectionsTree();
       } else {
         state.expandedNodes.add(colId);
+        saveExpandedNodes();
         await loadCollectionDetails(colId);
       }
     };
@@ -642,6 +1122,7 @@ function renderCollectionsTree() {
             } else {
               state.expandedNodes.add(folderId);
             }
+            saveExpandedNodes();
             renderCollectionsTree();
           };
 
@@ -716,16 +1197,166 @@ function refreshCollectionSidebar() {
 
 // Request Loader
 function loadRequestIntoEditor(colId, reqId) {
-  state.activeCollectionId = colId;
-  state.activeRequestId = reqId;
-
   const colDetail = state.loadedCollections[colId];
   if (!colDetail) return;
 
   const req = colDetail.requests.find(r => r.id === reqId);
   if (!req) return;
 
-  state.activeRequest = req;
+  openRequestInTab(req.id, 'saved', req.name, req, colId);
+}
+
+// Tab system helpers
+async function flushSave() {
+  if (saveTimeout) {
+    clearTimeout(saveTimeout);
+    saveTimeout = null;
+  }
+  if (state.activeCollectionId && state.loadedCollections[state.activeCollectionId]) {
+    try {
+      const col = state.loadedCollections[state.activeCollectionId];
+      await window.teamapi.collections.save(col);
+    } catch (err) {
+      showToast('Auto-save failed: ' + err.message, 'error');
+    }
+  }
+}
+
+async function openRequestInTab(id, type, name, requestObj, collectionId = null) {
+  let existingTab = state.tabs.find(t => t.id === id);
+  if (existingTab) {
+    await activateTab(id);
+  } else {
+    const newTab = {
+      id: id,
+      type: type, // 'saved', 'history', 'new'
+      name: name,
+      collectionId: collectionId,
+      request: requestObj
+    };
+    state.tabs.push(newTab);
+    await activateTab(id);
+  }
+}
+
+async function activateTab(tabId) {
+  await flushSave();
+  
+  state.activeTabId = tabId;
+  const tab = state.tabs.find(t => t.id === tabId);
+  if (tab) {
+    state.activeRequest = tab.request;
+    state.activeCollectionId = tab.collectionId;
+    state.activeRequestId = (tab.type === 'saved') ? tab.id : null;
+    renderActiveTabToEditor();
+  } else {
+    state.activeRequest = null;
+    state.activeCollectionId = null;
+    state.activeRequestId = null;
+    renderActiveTabToEditor();
+  }
+  renderRequestTabs();
+  renderCollectionsTree();
+}
+
+async function closeTab(tabId, e) {
+  if (e) e.stopPropagation();
+  await flushSave();
+
+  const tabIndex = state.tabs.findIndex(t => t.id === tabId);
+  if (tabIndex === -1) return;
+
+  state.tabs.splice(tabIndex, 1);
+
+  if (state.activeTabId === tabId) {
+    if (state.tabs.length > 0) {
+      const nextActiveIndex = Math.min(tabIndex, state.tabs.length - 1);
+      await activateTab(state.tabs[nextActiveIndex].id);
+    } else {
+      await activateTab(null);
+    }
+  } else {
+    renderRequestTabs();
+  }
+}
+
+function createNewTab() {
+  const newId = 'new-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+  const blankRequest = {
+    method: 'GET',
+    url: '',
+    params: [],
+    headers: [],
+    auth: { type: 'none' },
+    body: { type: 'none', content: '', formData: [] },
+    preScript: '',
+    postScript: ''
+  };
+  openRequestInTab(newId, 'new', 'Untitled Request', blankRequest);
+}
+
+function updateActiveTabTitle() {
+  if (!state.activeTabId) return;
+  const tab = state.tabs.find(t => t.id === state.activeTabId);
+  if (!tab) return;
+
+  if (tab.type === 'new' || tab.type === 'history') {
+    let url = tab.request.url || '';
+    let name = url ? url.replace(/^https?:\/\/[^\/]+/i, '') : '';
+    if (!name || name === '/') name = url || (tab.type === 'new' ? 'Untitled Request' : 'History');
+    if (name.length > 20) name = name.substring(0, 17) + '...';
+    tab.name = name;
+  }
+  renderRequestTabs();
+}
+
+function renderRequestTabs() {
+  const container = document.getElementById('requestTabsList');
+  if (!container) return;
+  container.innerHTML = '';
+
+  state.tabs.forEach(tab => {
+    const tabEl = document.createElement('div');
+    tabEl.className = `request-tab ${state.activeTabId === tab.id ? 'active' : ''}`;
+    tabEl.onclick = () => activateTab(tab.id);
+
+    // Method badge
+    const methodSpan = document.createElement('span');
+    const method = tab.request.method || 'GET';
+    methodSpan.className = `request-tab-method ${method}`;
+    methodSpan.textContent = method;
+    tabEl.appendChild(methodSpan);
+
+    // Name text
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'request-tab-title';
+    nameSpan.textContent = tab.name || 'Untitled';
+    tabEl.appendChild(nameSpan);
+
+    // Close button
+    const closeSpan = document.createElement('span');
+    closeSpan.className = 'request-tab-close';
+    closeSpan.innerHTML = '×';
+    closeSpan.onclick = (e) => closeTab(tab.id, e);
+    tabEl.appendChild(closeSpan);
+
+    container.appendChild(tabEl);
+  });
+}
+
+function renderActiveTabToEditor() {
+  const req = state.activeRequest;
+  const placeholderEl = document.getElementById('noRequestPlaceholder');
+  const mainContentEl = document.getElementById('editorMainContent');
+
+  if (!req) {
+    if (placeholderEl) placeholderEl.style.display = 'flex';
+    if (mainContentEl) mainContentEl.style.display = 'none';
+    return;
+  }
+
+  if (placeholderEl) placeholderEl.style.display = 'none';
+  if (mainContentEl) mainContentEl.style.display = 'flex';
 
   // Render elements in editor
   document.getElementById('requestMethod').value = req.method || 'GET';
@@ -789,9 +1420,6 @@ function loadRequestIntoEditor(colId, reqId) {
     document.getElementById('preScriptPane').style.display = 'flex';
     document.getElementById('postScriptPane').style.display = 'none';
   }
-
-  // Render collections structure highlight
-  renderCollectionsTree();
 }
 
 // Parameters Table Manager
@@ -823,16 +1451,34 @@ function renderBodyFormTable() {
 }
 
 // Shared Key-Value Grid Utility
-function renderKeyValueGrid(container, list, onChange) {
+function renderKeyValueGrid(container, list, onChange, options = {}) {
   // Preserve header
   const header = container.querySelector('.kv-header');
   container.innerHTML = '';
   container.appendChild(header);
 
+  if (options.showSecret) {
+    header.style.gridTemplateColumns = '30px 1fr 1fr 60px 30px';
+    if (header.children.length === 4) {
+      const secretHeader = document.createElement('div');
+      secretHeader.textContent = 'Secret';
+      secretHeader.style.textAlign = 'center';
+      header.insertBefore(secretHeader, header.children[3]);
+    }
+  } else {
+    header.style.gridTemplateColumns = '';
+    if (header.children.length === 5) {
+      header.children[3].remove();
+    }
+  }
+
   // Renders the rows
   list.forEach((item, index) => {
     const row = document.createElement('div');
     row.className = 'kv-row';
+    if (options.showSecret) {
+      row.style.gridTemplateColumns = '30px 1fr 1fr 60px 30px';
+    }
 
     const checkbox = document.createElement('input');
     checkbox.type = 'checkbox';
@@ -855,16 +1501,63 @@ function renderKeyValueGrid(container, list, onChange) {
     };
     row.appendChild(keyInput);
 
+    const valCol = document.createElement('div');
+    valCol.style.position = 'relative';
+    valCol.style.display = 'flex';
+    valCol.style.alignItems = 'center';
+    valCol.style.width = '100%';
+
     const valInput = document.createElement('input');
-    valInput.type = 'text';
+    valInput.type = (item.isSecret && !item.showPlain) ? 'password' : 'text';
     valInput.className = 'kv-input';
     valInput.value = item.value || '';
     valInput.placeholder = 'Value';
+    valInput.style.width = '100%';
+    if (item.isSecret) {
+      valInput.style.paddingRight = '24px';
+    }
     valInput.oninput = (e) => {
       item.value = e.target.value;
       onChange(list);
     };
-    row.appendChild(valInput);
+    valCol.appendChild(valInput);
+
+    if (item.isSecret) {
+      const eyeBtn = document.createElement('button');
+      eyeBtn.className = 'secret-toggle-btn';
+      eyeBtn.innerHTML = item.showPlain ? '🙈' : '👁️';
+      eyeBtn.title = item.showPlain ? 'Hide Value' : 'Show Value';
+      eyeBtn.onclick = (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        item.showPlain = !item.showPlain;
+        valInput.type = item.showPlain ? 'text' : 'password';
+        eyeBtn.innerHTML = item.showPlain ? '🙈' : '👁️';
+        eyeBtn.title = item.showPlain ? 'Hide Value' : 'Show Value';
+      };
+      valCol.appendChild(eyeBtn);
+    }
+    row.appendChild(valCol);
+
+    if (options.showSecret) {
+      const secretWrapper = document.createElement('div');
+      secretWrapper.style.display = 'flex';
+      secretWrapper.style.alignItems = 'center';
+      secretWrapper.style.gap = '4px';
+      secretWrapper.style.justifyContent = 'center';
+
+      const secretCheckbox = document.createElement('input');
+      secretCheckbox.type = 'checkbox';
+      secretCheckbox.className = 'kv-checkbox';
+      secretCheckbox.checked = item.isSecret === true;
+      secretCheckbox.title = 'Mask value';
+      secretCheckbox.onchange = (e) => {
+        item.isSecret = e.target.checked;
+        onChange(list);
+      };
+      secretWrapper.appendChild(secretCheckbox);
+      row.appendChild(secretWrapper);
+    }
 
     const delBtn = document.createElement('div');
     delBtn.className = 'kv-delete';
@@ -881,6 +1574,9 @@ function renderKeyValueGrid(container, list, onChange) {
   // Always append an empty row for new additions
   const emptyRow = document.createElement('div');
   emptyRow.className = 'kv-row';
+  if (options.showSecret) {
+    emptyRow.style.gridTemplateColumns = '30px 1fr 1fr 60px 30px';
+  }
 
   const emptyCheckbox = document.createElement('input');
   emptyCheckbox.type = 'checkbox';
@@ -899,6 +1595,18 @@ function renderKeyValueGrid(container, list, onChange) {
   emptyVal.className = 'kv-input';
   emptyVal.placeholder = 'Add value';
   emptyRow.appendChild(emptyVal);
+
+  if (options.showSecret) {
+    const emptySecretWrapper = document.createElement('div');
+    emptySecretWrapper.style.display = 'flex';
+    emptySecretWrapper.style.justifyContent = 'center';
+    const emptySecretCheckbox = document.createElement('input');
+    emptySecretCheckbox.type = 'checkbox';
+    emptySecretCheckbox.className = 'kv-checkbox';
+    emptySecretCheckbox.disabled = true;
+    emptySecretWrapper.appendChild(emptySecretCheckbox);
+    emptyRow.appendChild(emptySecretWrapper);
+  }
 
   const emptyDel = document.createElement('div');
   emptyDel.className = 'kv-delete';
@@ -934,6 +1642,7 @@ function syncUrlToParams() {
     state.activeRequest.params = [];
     renderParamsTable();
     state.isSyncingParams = false;
+    updateActiveTabTitle();
     return;
   }
 
@@ -948,6 +1657,7 @@ function syncUrlToParams() {
   state.activeRequest.params = params;
   renderParamsTable();
   state.isSyncingParams = false;
+  updateActiveTabTitle();
 }
 
 function syncParamsToUrl() {
@@ -969,6 +1679,7 @@ function syncParamsToUrl() {
 
   state.activeRequest.url = urlInput.value;
   state.isSyncingParams = false;
+  updateActiveTabTitle();
   queueSave();
 }
 
@@ -986,14 +1697,14 @@ function renderAuthFields(type) {
 
 // Dynamic Body Fields renderer
 function renderBodyEditorFields(type) {
-  document.getElementById('bodyTextEditor').style.display = 'none';
-  document.getElementById('bodyFormEditor').style.display = 'none';
-  document.getElementById('bodyGraphqlEditor').style.display = 'none';
+  document.getElementById('bodyContentPane').style.display = 'none';
+  document.getElementById('bodyFormPane').style.display = 'none';
+  document.getElementById('bodyGraphqlPane').style.display = 'none';
 
   const isRaw = (type === 'raw' || type === 'json' || type === 'text' || type === 'xml' || type === 'html' || type === 'javascript');
 
   if (isRaw) {
-    document.getElementById('bodyTextEditor').style.display = 'flex';
+    document.getElementById('bodyContentPane').style.display = 'flex';
     let subType = (state.activeRequest && state.activeRequest.body && state.activeRequest.body.subType) || 'json';
     if (type !== 'raw') {
       subType = type;
@@ -1013,9 +1724,9 @@ function renderBodyEditorFields(type) {
       }
     }
   } else if (type === 'form' || type === 'urlencoded') {
-    document.getElementById('bodyFormEditor').style.display = 'block';
+    document.getElementById('bodyFormPane').style.display = 'block';
   } else if (type === 'graphql') {
-    document.getElementById('bodyGraphqlEditor').style.display = 'flex';
+    document.getElementById('bodyGraphqlPane').style.display = 'flex';
   }
 }
 
@@ -1077,12 +1788,25 @@ async function executeRequest() {
     // Body content display
     if (result.error) {
       state.lastResponseText = result.error;
+      state.lastResponseIsBinary = false;
+      state.lastResponseContentType = '';
       renderResponseBody(`Error sending request:\n${result.error}`, 'raw');
       statusBadge.textContent = 'Error';
       statusBadge.style.backgroundColor = 'var(--accent-red)';
     } else {
       state.lastResponseText = result.body || '';
-      const activeMode = document.querySelector('#prettyRawToggle .toggle-btn.active').dataset.mode;
+      state.lastResponseIsBinary = result.isBinary || false;
+      state.lastResponseContentType = result.contentType || '';
+      
+      let activeMode = document.querySelector('#prettyRawToggle .toggle-btn.active').dataset.mode;
+      const isHtml = result.contentType && result.contentType.toLowerCase().includes('html');
+      if (isHtml) {
+        document.querySelectorAll('#prettyRawToggle .toggle-btn').forEach(btn => {
+          btn.classList.toggle('active', btn.dataset.mode === 'preview');
+        });
+        activeMode = 'preview';
+      }
+      
       renderResponseBody(result.body, activeMode);
     }
 
@@ -1152,12 +1876,38 @@ function renderResponseBody(text, mode) {
   const display = document.getElementById('responseBodyDisplay');
   display.innerHTML = '';
 
+  // Show/Hide JSONPath bar based on if the response is JSON-like and in Pretty/Raw mode
+  const jsonPathBar = document.getElementById('responseJsonPathBar');
+  if (jsonPathBar) {
+    let isJson = false;
+    try {
+      if (text && !state.lastResponseIsBinary) {
+        JSON.parse(text);
+        isJson = true;
+      }
+    } catch(e) {}
+    jsonPathBar.style.display = (isJson && (mode === 'pretty' || mode === 'raw')) ? 'flex' : 'none';
+  }
+
   if (!text) {
     display.innerHTML = '<div style="color: var(--text-dim); text-align: center; margin-top: 40px;">Response body is empty</div>';
     return;
   }
 
-  if (mode === 'pretty') {
+  if (mode === 'preview') {
+    if (state.lastResponseIsBinary) {
+      const img = document.createElement('img');
+      img.className = 'preview-image';
+      img.src = `data:${state.lastResponseContentType};base64,${text}`;
+      display.appendChild(img);
+    } else {
+      const iframe = document.createElement('iframe');
+      iframe.className = 'preview-iframe';
+      iframe.sandbox = 'allow-scripts';
+      iframe.srcdoc = text;
+      display.appendChild(iframe);
+    }
+  } else if (mode === 'pretty') {
     try {
       const parsed = JSON.parse(text);
       const formatted = JSON.stringify(parsed, null, 2);
@@ -1246,12 +1996,10 @@ function populateEnvironmentDropdown() {
     const option = document.createElement('option');
     option.value = env.id;
     option.textContent = env.name;
-    // Add custom selection check
-    if (state.activeEnvId === env.id) {
-      option.selected = true;
-    }
     selector.insertBefore(option, selector.lastElementChild);
   });
+
+  selector.value = state.activeEnvId;
 }
 
 function handleEnvSelectorChange(e) {
@@ -1263,7 +2011,9 @@ function handleEnvSelectorChange(e) {
   } else {
     state.activeEnvId = val;
     state.activeEnv = state.environments.find(env => env.id === val) || null;
-    localStorage.setItem('lastActiveEnvId', val);
+    if (state.currentWorkspace) {
+      localStorage.setItem(`activeEnvId:${state.currentWorkspace.path}`, val);
+    }
     showToast(`Switched environment to: ${state.activeEnv ? state.activeEnv.name : 'None'}`);
   }
 }
@@ -1271,10 +2021,12 @@ function handleEnvSelectorChange(e) {
 // Environment Management Dialog Modal
 let envModalActiveId = null;
 let envModalDraftVariables = {};
+let envModalDraftSecrets = new Set();
 
 function openEnvironmentManager() {
   envModalActiveId = null;
   envModalDraftVariables = {};
+  envModalDraftSecrets = new Set();
 
   renderEnvManagerList();
 
@@ -1306,6 +2058,7 @@ function loadEnvIntoManager(id) {
   if (!env) return;
 
   envModalDraftVariables = { ...env.variables };
+  envModalDraftSecrets = new Set(env.secrets || []);
 
   // Set panes visible
   document.getElementById('envNoSelectedPane').style.display = 'none';
@@ -1324,25 +2077,35 @@ function renderEnvManagerVarsTable() {
   // Parse draft object map to structured key-value list
   const list = [];
   for (const [key, value] of Object.entries(envModalDraftVariables)) {
-    list.push({ key, value, enabled: true });
+    list.push({ 
+      key, 
+      value, 
+      enabled: true,
+      isSecret: envModalDraftSecrets.has(key)
+    });
   }
 
   renderKeyValueGrid(container, list, (newList) => {
     // Re-pack list to draft variables map
     envModalDraftVariables = {};
+    envModalDraftSecrets.clear();
     newList.forEach(item => {
       if (item.key) {
         envModalDraftVariables[item.key] = item.value || '';
+        if (item.isSecret) {
+          envModalDraftSecrets.add(item.key);
+        }
       }
     });
-  });
+  }, { showSecret: true });
 }
 
 async function createNewEnvironment() {
   try {
     const newEnv = {
       name: 'New Environment',
-      variables: {}
+      variables: {},
+      secrets: []
     };
     const saved = await window.teamapi.environments.save(newEnv);
     await refreshEnvironments();
@@ -1366,6 +2129,7 @@ async function saveActiveEnvironmentChanges() {
 
   env.name = newName;
   env.variables = envModalDraftVariables;
+  env.secrets = Array.from(envModalDraftSecrets);
 
   try {
     await window.teamapi.environments.save(env);
@@ -1438,11 +2202,26 @@ function renderHistory() {
     row.appendChild(status);
 
     row.onclick = () => {
-      // Load history item properties directly into editor as an ephemeral editable request
-      document.getElementById('requestMethod').value = item.request.method || 'GET';
-      document.getElementById('requestUrl').value = item.request.url || '';
-      syncUrlToParams();
-      showToast('Loaded request from history');
+      // Create a unique ephemeral ID
+      const tabId = 'history-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+      // Copy history request properties to a fresh editable object
+      const clonedRequest = {
+        method: item.request.method || 'GET',
+        url: item.request.url || '',
+        params: Array.isArray(item.request.params) ? JSON.parse(JSON.stringify(item.request.params)) : [],
+        headers: Array.isArray(item.request.headers) ? JSON.parse(JSON.stringify(item.request.headers)) : [],
+        auth: item.request.auth ? JSON.parse(JSON.stringify(item.request.auth)) : { type: 'none' },
+        body: item.request.body ? JSON.parse(JSON.stringify(item.request.body)) : { type: 'none', content: '', formData: [] },
+        preScript: item.request.preScript || '',
+        postScript: item.request.postScript || ''
+      };
+      
+      let name = clonedRequest.url ? clonedRequest.url.replace(/^https?:\/\/[^\/]+/i, '') : 'History';
+      if (!name || name === '/') name = clonedRequest.url || 'History';
+      if (name.length > 20) name = name.substring(0, 17) + '...';
+      
+      openRequestInTab(tabId, 'history', `${clonedRequest.method} ${name}`, clonedRequest);
+      showToast('Loaded request from history into new tab');
     };
 
     container.appendChild(row);
@@ -1610,9 +2389,17 @@ function renameRequestPrompt(colId, reqId) {
     req.name = newName;
     try {
       await window.teamapi.collections.save(col);
+      
+      // Update tab title if open
+      const tab = state.tabs.find(t => t.id === reqId);
+      if (tab) {
+        tab.name = newName;
+        renderRequestTabs();
+      }
+      
       renderCollectionsTree();
       if (state.activeRequestId === reqId) {
-        loadRequestIntoEditor(colId, reqId);
+        renderActiveTabToEditor();
       }
     } catch (e) {
       showToast('Rename failed: ' + e.message, 'error');
@@ -1647,10 +2434,13 @@ async function deleteRequestPrompt(colId, reqId) {
 
   try {
     await window.teamapi.collections.save(col);
-    if (state.activeRequestId === reqId) {
-      state.activeRequestId = null;
-      state.activeRequest = null;
+    
+    // Close the tab if it was open
+    const openTab = state.tabs.find(t => t.id === reqId);
+    if (openTab) {
+      await closeTab(reqId);
     }
+    
     showToast('Request deleted');
     renderCollectionsTree();
   } catch (e) {
@@ -1908,10 +2698,15 @@ function updateVariablePreview(inputEl) {
 
   // Resolve matching variables
   const envVars = state.activeEnv ? state.activeEnv.variables : {};
+  const envSecrets = (state.activeEnv && state.activeEnv.secrets) || [];
   let previewHtml = '';
   matches.forEach(m => {
     const key = m[1].trim();
-    const resolved = envVars.hasOwnProperty(key) ? envVars[key] : 'undefined';
+    const isSecret = envSecrets.includes(key);
+    let resolved = envVars.hasOwnProperty(key) ? envVars[key] : 'undefined';
+    if (isSecret && resolved !== 'undefined') {
+      resolved = '••••••••';
+    }
     previewHtml += `<div><span class="var-preview-name">{{${key}}}</span><span class="var-preview-arrow">➔</span><span class="var-preview-value">${resolved}</span></div>`;
   });
 
@@ -2231,5 +3026,180 @@ function renderTestResults(tests) {
 
     display.appendChild(row);
   });
+}
+
+// 5. Postman & OpenAPI Importer
+async function importCollection(jsonData) {
+  let parsed = null;
+  try {
+    parsed = typeof jsonData === 'string' ? JSON.parse(jsonData) : jsonData;
+  } catch (e) {
+    throw new Error('Invalid JSON format');
+  }
+
+  let collectionObj = {
+    id: '', // Will be set by save
+    name: '',
+    folders: [],
+    requests: []
+  };
+
+  const generateUuid = () => {
+    return window.crypto.randomUUID ? window.crypto.randomUUID() : Math.random().toString(36).substring(2, 9);
+  };
+
+  // 1. Detect Postman Collection
+  if (parsed.info && (parsed.info.schema || parsed.item)) {
+    collectionObj.name = parsed.info.name || 'Imported Postman Collection';
+    
+    const parsePostmanItems = (items, folderId = null) => {
+      items.forEach(item => {
+        if (item.item) {
+          const newFolderId = generateUuid();
+          collectionObj.folders.push({
+            id: newFolderId,
+            name: item.name || 'Folder'
+          });
+          parsePostmanItems(item.item, newFolderId);
+        } else if (item.request) {
+          let url = '';
+          if (item.request.url) {
+            url = typeof item.request.url === 'string' ? item.request.url : (item.request.url.raw || '');
+          }
+
+          const headers = (item.request.header || []).map(h => ({
+            key: h.key || '',
+            value: h.value || '',
+            enabled: !h.disabled
+          }));
+
+          let auth = { type: 'none' };
+          if (item.request.auth) {
+            const type = item.request.auth.type;
+            if (type === 'bearer') {
+              const tokenObj = item.request.auth.bearer;
+              const tokenVal = Array.isArray(tokenObj) ? (tokenObj.find(t => t.key === 'token') || {}).value : (tokenObj || {}).value;
+              auth = { type: 'bearer', token: tokenVal || '' };
+            } else if (type === 'basic') {
+              const basicList = item.request.auth.basic || [];
+              const username = (basicList.find(b => b.key === 'username') || {}).value || '';
+              const password = (basicList.find(b => b.key === 'password') || {}).value || '';
+              auth = { type: 'basic', username, password };
+            }
+          }
+
+          let body = { type: 'none', content: '', formData: [] };
+          if (item.request.body) {
+            const mode = item.request.body.mode;
+            if (mode === 'raw') {
+              body.type = 'raw';
+              body.content = item.request.body.raw || '';
+              const options = item.request.body.options || {};
+              body.subType = (options.raw || {}).language || 'json';
+            } else if (mode === 'formdata') {
+              body.type = 'form';
+              body.formData = (item.request.body.formdata || []).map(f => ({
+                key: f.key || '',
+                value: f.value || '',
+                enabled: !f.disabled
+              }));
+            } else if (mode === 'urlencoded') {
+              body.type = 'urlencoded';
+              body.formData = (item.request.body.urlencoded || []).map(f => ({
+                key: f.key || '',
+                value: f.value || '',
+                enabled: !f.disabled
+              }));
+            }
+          }
+
+          collectionObj.requests.push({
+            id: generateUuid(),
+            folderId,
+            name: item.name || 'Request',
+            method: item.request.method || 'GET',
+            url,
+            headers,
+            auth,
+            body,
+            params: [],
+            preScript: '',
+            postScript: ''
+          });
+        }
+      });
+    };
+
+    parsePostmanItems(parsed.item || []);
+  }
+  // 2. Detect OpenAPI
+  else if (parsed.openapi || parsed.swagger) {
+    collectionObj.name = (parsed.info && parsed.info.title) || 'Imported OpenAPI Spec';
+    
+    let serverUrl = 'http://localhost:3000';
+    if (parsed.servers && parsed.servers.length > 0) {
+      serverUrl = parsed.servers[0].url || serverUrl;
+    }
+
+    if (parsed.paths) {
+      for (const [pathKey, pathObj] of Object.entries(parsed.paths)) {
+        for (const [methodKey, methodObj] of Object.entries(pathObj)) {
+          if (['get', 'post', 'put', 'delete', 'patch', 'head', 'options'].includes(methodKey)) {
+            const name = methodObj.summary || methodObj.operationId || `${methodKey.toUpperCase()} ${pathKey}`;
+            const headers = [];
+            const params = [];
+            let body = { type: 'none', content: '', formData: [] };
+
+            if (methodObj.requestBody && methodObj.requestBody.content) {
+              const content = methodObj.requestBody.content;
+              if (content['application/json']) {
+                body.type = 'raw';
+                body.subType = 'json';
+                body.content = '{\n  \n}';
+                headers.push({ key: 'Content-Type', value: 'application/json', enabled: true });
+              } else if (content['application/x-www-form-urlencoded']) {
+                body.type = 'urlencoded';
+              } else if (content['multipart/form-data']) {
+                body.type = 'form';
+              }
+            }
+
+            if (methodObj.parameters) {
+              methodObj.parameters.forEach(p => {
+                if (p.in === 'query') {
+                  params.push({ key: p.name, value: '', enabled: true });
+                } else if (p.in === 'header') {
+                  headers.push({ key: p.name, value: '', enabled: true });
+                }
+              });
+            }
+
+            collectionObj.requests.push({
+              id: generateUuid(),
+              folderId: null,
+              name,
+              method: methodKey.toUpperCase(),
+              url: serverUrl + pathKey,
+              headers,
+              auth: { type: 'none' },
+              body,
+              params,
+              preScript: '',
+              postScript: ''
+            });
+          }
+        }
+      }
+    }
+  } else {
+    throw new Error('Unsupported format. Make sure you import a Postman v2/v2.1 collection or an OpenAPI v3 spec.');
+  }
+
+  if (collectionObj.requests.length === 0) {
+    throw new Error('No requests found in import file.');
+  }
+
+  const saved = await window.teamapi.collections.save(collectionObj);
+  return saved;
 }
 

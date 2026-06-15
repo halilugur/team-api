@@ -1,6 +1,7 @@
 {
   "name": "team-api",
-  "version": "1.0.0",
+  "productName": "TeamAPI",
+  "version": "1.0.1",
   "description": "File-system based HTTP API testing client.",
   "author": "TeamAPI",
   "main": "src/main/main.js",
