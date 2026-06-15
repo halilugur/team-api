@@ -316,6 +316,20 @@ function setupEventListeners() {
   // Sidebar actions
   document.getElementById('btnAddCollection').onclick = () => openDialog('modalCreateCollection');
 
+  const btnClearHistory = document.getElementById('btnClearHistory');
+  if (btnClearHistory) {
+    btnClearHistory.onclick = async () => {
+      if (!state.currentWorkspace) return;
+      try {
+        await window.teamapi.history.clear();
+        showToast('History cleared', 'success');
+        await refreshHistory();
+      } catch (err) {
+        showToast('Failed to clear history: ' + err.message, 'error');
+      }
+    };
+  }
+
   const btnNewRequestTab = document.getElementById('btnNewRequestTab');
   if (btnNewRequestTab) {
     btnNewRequestTab.onclick = createNewTab;

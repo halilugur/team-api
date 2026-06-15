@@ -249,6 +249,19 @@ input, textarea, pre, code, span, mark, .mono, .json-rendered, #responseBodyDisp
   color: var(--text-primary);
 }
 
+.sidebar-clear-btn {
+  cursor: pointer;
+  color: var(--text-dim);
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.sidebar-clear-btn:hover {
+  color: var(--text-primary);
+}
+
 /* List / Tree Nodes */
 .tree-node {
   margin-left: 8px;

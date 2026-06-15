@@ -416,6 +416,17 @@ ipcMain.handle('history:list', async () => {
   return [];
 });
 
+ipcMain.handle('history:clear', async () => {
+  if (!currentWorkspace) return;
+  const historyPath = pathModule.join(currentWorkspace, '.teamapi', 'history.json');
+  try {
+    fs.writeFileSync(historyPath, '[]', 'utf8');
+  } catch (e) {
+    console.error('Failed to clear history:', e);
+    throw e;
+  }
+});
+
 // Execute Request
 ipcMain.handle('request:execute', async (event, { request: requestObj, envVars }) => {
   const scriptLog = [];

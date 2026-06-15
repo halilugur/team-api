@@ -39,7 +39,8 @@ contextBridge.exposeInMainWorld('teamapi', {
     delete: (id) => ipcRenderer.invoke('environments:delete', id)
   },
   history: {
-    list: () => ipcRenderer.invoke('history:list')
+    list: () => ipcRenderer.invoke('history:list'),
+    clear: () => ipcRenderer.invoke('history:clear')
   },
   request: {
     execute: (args) => ipcRenderer.invoke('request:execute', args)
