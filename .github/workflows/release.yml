@@ -9,11 +9,11 @@ permissions:
   contents: write
 
 jobs:
-  build:
-    name: Build on ${{ matrix.os }}
+  release:
+    name: Build & Release TeamAPI
     runs-on: ${{ matrix.os }}
     strategy:
-      fail-fast: false
+      fail-fast: false   # don't cancel other OS builds if one fails
       matrix:
         os: [macos-latest, ubuntu-latest, windows-latest]
 
@@ -30,6 +30,8 @@ jobs:
       - name: Install Dependencies
         run: npm ci
 
+      # ── Per-OS build steps (avoids bash conditional issues on Windows) ──
+
       - name: Build (macOS)
         if: runner.os == 'macOS'
         run: npx electron-builder --mac dmg
@@ -40,15 +42,23 @@ jobs:
 
       - name: Build (Windows)
         if: runner.os == 'Windows'
-        run: npx electron-builder --win nsis zip
+        run: npx electron-builder --win nsis msi zip
+
+      # ── Debug: print what was actually produced ──
+      - name: List dist/ contents
+        run: ls -R dist/
+        shell: bash
 
       - name: Upload Artifacts to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          draft: false
+          prerelease: false
           files: |
-            dist/*.dmg
-            dist/*.AppImage
-            dist/*Setup*.exe
-            dist/*-win.zip
+            dist/**/*.dmg
+            dist/**/*.AppImage
+            dist/**/*.exe
+            dist/**/*.msi
+            dist/**/*.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
