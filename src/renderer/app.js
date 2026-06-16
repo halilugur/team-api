@@ -684,9 +684,9 @@ function setupEventListeners() {
     if (e.key === 'Escape') hideContextMenu();
   });
 
-  // Context Menu listener on tree items
+  // Context Menu listener on tree items & request tabs
   window.addEventListener('contextmenu', (e) => {
-    const item = e.target.closest('.collection-item, .folder-item, .request-item');
+    const item = e.target.closest('.collection-item, .folder-item, .request-item, .request-tab');
     if (item) {
       e.preventDefault();
       showContextMenu(e.clientX, e.clientY, item);
@@ -732,6 +732,7 @@ function setupEventListeners() {
             closeDialog('modalImportCollection');
             showToast('Collection imported successfully!', 'success');
             await refreshCollections();
+            await refreshEnvironments();
             renderCollectionsTree();
           } catch (err) {
             showToast('Import failed: ' + err.message, 'error');
@@ -743,6 +744,7 @@ function setupEventListeners() {
         closeDialog('modalImportCollection');
         showToast('Collection imported successfully!', 'success');
         await refreshCollections();
+        await refreshEnvironments();
         renderCollectionsTree();
       } else {
         showToast('Please select a file or paste JSON content to import.', 'warning');
@@ -1296,6 +1298,43 @@ async function closeTab(tabId, e) {
   }
 }
 
+async function closeOtherTabs(keepTabId) {
+  await flushSave();
+  state.tabs = state.tabs.filter(t => t.id === keepTabId);
+  const activeTabStillExists = state.tabs.some(t => t.id === state.activeTabId);
+  if (!activeTabStillExists) {
+    if (state.tabs.length > 0) {
+      await activateTab(keepTabId);
+    } else {
+      await activateTab(null);
+    }
+  } else {
+    renderRequestTabs();
+  }
+}
+
+async function closeTabsToTheRight(tabId) {
+  await flushSave();
+  const index = state.tabs.findIndex(t => t.id === tabId);
+  if (index === -1) return;
+
+  const tabsToKeep = state.tabs.slice(0, index + 1);
+  const activeTabStillExists = tabsToKeep.some(t => t.id === state.activeTabId);
+  state.tabs = tabsToKeep;
+
+  if (!activeTabStillExists) {
+    await activateTab(tabId);
+  } else {
+    renderRequestTabs();
+  }
+}
+
+async function closeAllTabs() {
+  await flushSave();
+  state.tabs = [];
+  await activateTab(null);
+}
+
 function createNewTab() {
   const newId = 'new-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
   const blankRequest = {
@@ -1334,6 +1373,8 @@ function renderRequestTabs() {
   state.tabs.forEach(tab => {
     const tabEl = document.createElement('div');
     tabEl.className = `request-tab ${state.activeTabId === tab.id ? 'active' : ''}`;
+    tabEl.dataset.type = 'tab';
+    tabEl.dataset.id = tab.id;
     tabEl.onclick = () => activateTab(tab.id);
 
     // Method badge
@@ -2270,6 +2311,12 @@ function showContextMenu(x, y, item) {
     addContextMenuItem('Rename Request', () => renameRequestPrompt(colId, reqId));
     addContextMenuItem('Duplicate Request', () => duplicateRequestPrompt(colId, reqId));
     addContextMenuItem('Delete Request', () => deleteRequestPrompt(colId, reqId));
+  } else if (type === 'tab') {
+    const tabId = item.dataset.id;
+    addContextMenuItem('Close Tab', () => closeTab(tabId));
+    addContextMenuItem('Close Other Tabs', () => closeOtherTabs(tabId));
+    addContextMenuItem('Close Tabs to the Right', () => closeTabsToTheRight(tabId));
+    addContextMenuItem('Close All Tabs', () => closeAllTabs());
   }
 
   menu.style.left = `${x}px`;
@@ -3067,6 +3114,27 @@ async function importCollection(jsonData) {
   // 1. Detect Postman Collection
   if (parsed.info && (parsed.info.schema || parsed.item)) {
     collectionObj.name = parsed.info.name || 'Imported Postman Collection';
+
+    // Auto-create collection-based environment
+    let envVars = {};
+    if (Array.isArray(parsed.variable)) {
+      parsed.variable.forEach(v => {
+        if (v.key) {
+          envVars[v.key] = v.value || '';
+        }
+      });
+    }
+
+    const envObj = {
+      name: `${collectionObj.name} Env`,
+      variables: envVars,
+      secrets: []
+    };
+    try {
+      await window.teamapi.environments.save(envObj);
+    } catch (e) {
+      console.error('Failed to auto-create environment for imported collection:', e);
+    }
     
     const parsePostmanItems = (items, folderId = null) => {
       items.forEach(item => {

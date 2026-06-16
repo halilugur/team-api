@@ -56,9 +56,12 @@ function setupWorkspaceWatcher(path) {
 }
 
 function createWindow() {
-  mainWindow = new BrowserWindow({
+  const options = {
     width: 1200,
     height: 800,
+    minWidth: 800,
+    minHeight: 600,
+    resizable: true,
     backgroundColor: '#0f1117',
     titleBarStyle: 'hidden',
     trafficLightPosition: { x: 12, y: 12 },
@@ -67,7 +70,17 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false
     }
-  });
+  };
+
+  if (process.platform !== 'darwin') {
+    options.titleBarOverlay = {
+      color: '#0b0e14',
+      symbolColor: '#94a3b8',
+      height: 40
+    };
+  }
+
+  mainWindow = new BrowserWindow(options);
 
   mainWindow.loadFile(pathModule.join(__dirname, '../renderer/index.html'));
 

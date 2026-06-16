@@ -49,13 +49,19 @@
     transform var(--transition-speed) var(--ease-spring);
 }
 
+html, body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
 body {
   font-family: 'Plus Jakarta Sans', -apple-system, sans-serif;
   font-size: 13px;
   background-color: var(--bg-primary);
   color: var(--text-primary);
-  overflow: hidden;
-  height: 100vh;
   display: flex;
   flex-direction: column;
   letter-spacing: -0.01em;
@@ -76,7 +82,24 @@ textarea {
 }
 
 /* Allow text selection in inputs, response displays, dialogs, tabs, toasts, and code blocks */
-input, textarea, pre, code, span, mark, .mono, .json-rendered, #responseBodyDisplay, #responseBodyDisplay *, .tab-content, .tab-content *, dialog, dialog *, .toast-container, .toast-container *, .toast, .toast * {
+input,
+textarea,
+pre,
+code,
+span,
+mark,
+.mono,
+.json-rendered,
+#responseBodyDisplay,
+#responseBodyDisplay *,
+.tab-content,
+.tab-content *,
+dialog,
+dialog *,
+.toast-container,
+.toast-container *,
+.toast,
+.toast * {
   user-select: text !important;
   -webkit-user-select: text !important;
 }
@@ -103,9 +126,9 @@ input, textarea, pre, code, span, mark, .mono, .json-rendered, #responseBodyDisp
 
 .titlebar-drag-region {
   position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
+  top: 4px;
+  left: 4px;
+  right: 4px;
   bottom: 0;
   -webkit-app-region: drag;
 }
@@ -167,6 +190,10 @@ input, textarea, pre, code, span, mark, .mono, .json-rendered, #responseBodyDisp
   display: flex;
   overflow: hidden;
   position: relative;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
 }
 
 /* Left Sidebar (Glass pane look) */
@@ -411,11 +438,12 @@ input, textarea, pre, code, span, mark, .mono, .json-rendered, #responseBodyDisp
 
 /* Center request editor (Double-Bezel Nesting) */
 .main-editor {
-  flex: 1;
+  flex: 1.1;
   display: flex;
   flex-direction: column;
   background-color: var(--bg-primary);
   overflow: hidden;
+  min-height: 150px;
 }
 
 .editor-main-content {
@@ -775,21 +803,41 @@ input, textarea, pre, code, span, mark, .mono, .json-rendered, #responseBodyDisp
   border-color: var(--accent-blue);
 }
 
-/* Right Panel (Response Panel) */
+.main-workspace-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column; /* Stack editor (top) and response panel (bottom) */
+  overflow: hidden;
+  height: 100%;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* Bottom Panel (Response Panel) */
 .response-panel {
-  width: 400px;
+  flex: 0.9;
   background-color: var(--bg-secondary);
-  border-left: 1px solid var(--border);
+  border-top: 1px solid var(--border);
   display: flex;
   flex-direction: column;
-  flex-shrink: 0;
   overflow: hidden;
   backdrop-filter: blur(16px);
+  min-height: 150px;
+  transition: flex 0.2s cubic-bezier(0.4, 0, 0.2, 1), border-top-color 0.2s;
 }
 
 .response-panel.collapsed {
-  width: 0;
-  border-left: none;
+  flex: 0 !important;
+  min-height: 0 !important;
+  border-top-color: transparent !important;
+  pointer-events: none;
+}
+
+.body-content-pane {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
 }
 
 .response-header {
@@ -1351,7 +1399,8 @@ dialog::backdrop {
   align-items: center;
 }
 
-.autocomplete-item:hover, .autocomplete-item.active {
+.autocomplete-item:hover,
+.autocomplete-item.active {
   background-color: rgba(255, 255, 255, 0.04);
   color: var(--text-primary);
 }
@@ -1392,10 +1441,12 @@ dialog::backdrop {
   color: var(--accent-teal);
   font-weight: 700;
 }
+
 .variable-preview-tooltip .var-preview-arrow {
   color: var(--text-muted);
   margin: 0 4px;
 }
+
 .variable-preview-tooltip .var-preview-value {
   color: var(--accent-green);
 }
@@ -1424,7 +1475,7 @@ mark.search-match.current {
   border-radius: 4px;
   font-size: 12px;
   border: 1px solid var(--border);
-  background: rgba(255,255,255,0.01);
+  background: rgba(255, 255, 255, 0.01);
   margin-bottom: 6px;
 }
 
@@ -1473,7 +1524,7 @@ mark.search-match.current {
   flex-direction: column;
 }
 
-#responseBodyDisplay > pre {
+#responseBodyDisplay>pre {
   margin: 0;
   flex: 1;
   overflow: auto;
@@ -1574,10 +1625,13 @@ mark.search-match.current {
   overflow-x: auto;
   overflow-y: hidden;
   flex: 1;
-  scrollbar-width: none; /* Firefox */
+  scrollbar-width: none;
+  /* Firefox */
 }
+
 .request-tabs-list::-webkit-scrollbar {
-  display: none; /* Chrome/Safari */
+  display: none;
+  /* Chrome/Safari */
 }
 
 .request-tab {
@@ -1680,13 +1734,41 @@ mark.search-match.current {
   border-radius: 2px;
   text-transform: uppercase;
 }
-.request-tab-method.GET { color: #34d399; background: rgba(52, 211, 153, 0.1); }
-.request-tab-method.POST { color: #60a5fa; background: rgba(96, 165, 250, 0.1); }
-.request-tab-method.PUT { color: #fbbf24; background: rgba(251, 191, 36, 0.1); }
-.request-tab-method.PATCH { color: #a78bfa; background: rgba(167, 139, 250, 0.1); }
-.request-tab-method.DELETE { color: #f87171; background: rgba(248, 113, 113, 0.1); }
-.request-tab-method.OPTIONS { color: #9ca3af; background: rgba(156, 163, 175, 0.1); }
-.request-tab-method.HEAD { color: #fb7185; background: rgba(251, 113, 133, 0.1); }
+
+.request-tab-method.GET {
+  color: #34d399;
+  background: rgba(52, 211, 153, 0.1);
+}
+
+.request-tab-method.POST {
+  color: #60a5fa;
+  background: rgba(96, 165, 250, 0.1);
+}
+
+.request-tab-method.PUT {
+  color: #fbbf24;
+  background: rgba(251, 191, 36, 0.1);
+}
+
+.request-tab-method.PATCH {
+  color: #a78bfa;
+  background: rgba(167, 139, 250, 0.1);
+}
+
+.request-tab-method.DELETE {
+  color: #f87171;
+  background: rgba(248, 113, 113, 0.1);
+}
+
+.request-tab-method.OPTIONS {
+  color: #9ca3af;
+  background: rgba(156, 163, 175, 0.1);
+}
+
+.request-tab-method.HEAD {
+  color: #fb7185;
+  background: rgba(251, 113, 133, 0.1);
+}
 
 /* Placeholder Screen when no tab is open */
 .no-request-placeholder {
