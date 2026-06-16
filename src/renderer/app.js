@@ -2361,8 +2361,15 @@ function renderResponseBody(text, mode) {
     } else {
       const iframe = document.createElement('iframe');
       iframe.className = 'preview-iframe';
-      iframe.sandbox = 'allow-scripts';
-      iframe.srcdoc = text;
+      iframe.sandbox = 'allow-scripts allow-popups';
+      // Load via a blob URL instead of srcdoc: a srcdoc document inherits the
+      // app's strict CSP (which blocks inline scripts/images/styles), but a blob
+      // document has its own (empty) policy, so the previewed HTML renders fully.
+      // sandbox still keeps it origin-isolated from the app.
+      const blob = new Blob([text], { type: 'text/html;charset=utf-8' });
+      if (display._lastPreviewUrl) { try { URL.revokeObjectURL(display._lastPreviewUrl); } catch (e) {} }
+      display._lastPreviewUrl = URL.createObjectURL(blob);
+      iframe.src = display._lastPreviewUrl;
       display.appendChild(iframe);
     }
   } else if (mode === 'pretty') {

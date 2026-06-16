@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, Menu, shell } = require('electron');
 app.name = 'TeamAPI';
 app.setName('TeamAPI');
 const pathModule = require('path');
@@ -58,10 +58,10 @@ function setupWorkspaceWatcher(path) {
 
 function createWindow() {
   const options = {
-    width: 1200,
-    height: 800,
-    minWidth: 800,
-    minHeight: 600,
+    width: 1440,
+    height: 900,
+    minWidth: 1000,
+    minHeight: 800,
     resizable: true,
     backgroundColor: '#0f1117',
     titleBarStyle: 'hidden',
@@ -82,6 +82,13 @@ function createWindow() {
   }
 
   mainWindow = new BrowserWindow(options);
+
+  // Open external links (e.g. markdown links in AI chat) in the system browser,
+  // never inside the app window.
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//i.test(url)) shell.openExternal(url);
+    return { action: 'deny' };
+  });
 
   mainWindow.loadFile(pathModule.join(__dirname, '../renderer/index.html'));
 
@@ -887,8 +894,10 @@ ipcMain.handle('ai:chats:save', async (event, chat) => {
   chat = chat || {};
   if (!chat.id) { chat.id = uuidv4(); chat.createdAt = new Date().toISOString(); }
   chat.updatedAt = new Date().toISOString();
-~~
-l.  rd
+  const dir = pathModule.join(currentWorkspace, '.teamapi', 'chats');
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(pathModule.join(dir, `${chat.id}.json`), JSON.stringify(chat, null, 2), 'utf8');
+  return chat;
 });
 
 // Stream a completion. Deltas flow via ai:stream:{chunk|done|error} events; the
