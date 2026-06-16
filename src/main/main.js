@@ -6,6 +6,7 @@ const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
 const axios = require('axios');
 const vm = require('vm');
+const { PROVIDERS, streamChat, listModels } = require('./ai-providers');
 
 let mainWindow = null;
 let currentWorkspace = null;
@@ -812,5 +813,116 @@ ipcMain.handle('request:execute', async (event, { request: requestObj, envVars }
     tests,
     updatedEnvVars: activeEnvVars
   };
+});
+
+// ---------------------------------------------------------------------------
+// AI Chat — providers, global settings (userData), workspace chats, streaming
+// ---------------------------------------------------------------------------
+
+// Active streaming requests: requestId -> AbortController (for ai:chat:stop).
+const aiActiveRequests = new Map();
+
+function aiSettingsPath() {
+  return pathModule.join(app.getPath('userData'), 'ai-settings.json');
+}
+function aiGetSettings() {
+  try {
+    if (fs.existsSync(aiSettingsPath())) return JSON.parse(fs.readFileSync(aiSettingsPath(), 'utf8'));
+  } catch (e) {}
+  return { providers: {}, activeProvider: 'ollama' };
+}
+function aiSaveSettings(s) {
+  try { fs.writeFileSync(aiSettingsPath(), JSON.stringify(s, null, 2), 'utf8'); } catch (e) {}
+  return s;
+}
+function aiChatsDir() {
+  return currentWorkspace ? pathModule.join(currentWorkspace, '.teamapi', 'chats') : null;
+}
+
+// Static provider catalog (no secrets). Returned as an array for the renderer.
+ipcMain.handle('ai:providers:list', async () => Object.values(PROVIDERS));
+
+ipcMain.handle('ai:settings:get', async () => aiGetSettings());
+ipcMain.handle('ai:settings:save', async (event, s) => aiSaveSettings(s || {}));
+
+// List models for a provider using the saved baseUrl + apiKey.
+ipcMain.handle('ai:models:list', async (event, provider) => {
+  const settings = aiGetSettings();
+  const ps = (settings.providers && settings.providers[provider]) || {};
+  return await listModels(provider, ps.baseUrl, ps.apiKey);
+});
+
+// Workspace-scoped chats (mirror collections CRUD pattern).
+ipcMain.handle('ai:chats:list', async () => {
+  const dir = aiChatsDir();
+  if (!dir || !fs.existsSync(dir)) return [];
+  const out = [];
+  for (const file of fs.readdirSync(dir)) {
+    if (!file.endsWith('.json')) continue;
+    try {
+      const c = JSON.parse(fs.readFileSync(pathModule.join(dir, file), 'utf8'));
+      out.push({
+        id: c.id,
+        title: c.title,
+        provider: c.provider,
+        model: c.model,
+        updatedAt: c.updatedAt,
+        messageCount: (c.messages || []).length
+      });
+    } catch (e) {}
+  }
+  out.sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
+  return out;
+});
+
+ipcMain.handle('ai:chats:get', async (event, id) => {
+  if (!currentWorkspace) return null;
+  const p = pathModule.join(currentWorkspace, '.teamapi', 'chats', `${id}.json`);
+  if (!fs.existsSync(p)) return null;
+  try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch (e) { return null; }
+});
+
+ipcMain.handle('ai:chats:save', async (event, chat) => {
+  if (!currentWorkspace) throw new Error('No workspace selected');
+  chat = chat || {};
+  if (!chat.id) { chat.id = uuidv4(); chat.createdAt = new Date().toISOString(); }
+  chat.updatedAt = new Date().toISOString();
+~~
+l.  rd
+});
+
+// Stream a completion. Deltas flow via ai:stream:{chunk|done|error} events; the
+// invoke resolves with { ok, fullText } when the stream ends.
+ipcMain.handle('ai:chat', async (event, args) => {
+  const { requestId, provider, model, messages, system, temperature, maxTokens } = args || {};
+  const settings = aiGetSettings();
+  const ps = (settings.providers && settings.providers[provider]) || {};
+  const def = PROVIDERS[provider] || {};
+  const controller = new AbortController();
+  if (requestId) aiActiveRequests.set(requestId, controller);
+
+  try {
+    const fullText = await streamChat({
+      provider, baseUrl: ps.baseUrl || def.defaultBaseUrl || '', apiKey: ps.apiKey, model, messages, system, temperature, maxTokens
+    }, (text) => {
+      if (mainWindow && requestId) mainWindow.webContents.send('ai:stream:chunk', { requestId, text });
+    }, controller.signal);
+
+    if (mainWindow && requestId) mainWindow.webContents.send('ai:stream:done', { requestId, fullText });
+    return { ok: true, fullText };
+  } catch (err) {
+    const msg = (err && err.message) ? err.message : String(err);
+    if (mainWindow && requestId) mainWindow.webContents.send('ai:stream:error', { requestId, error: msg });
+    return { ok: false, error: msg };
+  } finally {
+    if (requestId) aiActiveRequests.delete(requestId);
+  }
+});
+
+ipcMain.handle('ai:chat:stop', async (event, requestId) => {
+  const c = requestId && aiActiveRequests.get(requestId);
+  if (c) { try { c.abort(); } catch (e) {} }
+  if (requestId) aiActiveRequests.delete(requestId);
+  return true;
 });
 

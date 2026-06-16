@@ -44,5 +44,32 @@ contextBridge.exposeInMainWorld('teamapi', {
   },
   request: {
     execute: (args) => ipcRenderer.invoke('request:execute', args)
+  },
+  ai: {
+    providers: () => ipcRenderer.invoke('ai:providers:list'),
+    getSettings: () => ipcRenderer.invoke('ai:settings:get'),
+    saveSettings: (s) => ipcRenderer.invoke('ai:settings:save', s),
+    listModels: (provider) => ipcRenderer.invoke('ai:models:list', provider),
+    chat: (args) => ipcRenderer.invoke('ai:chat', args),
+    stop: (requestId) => ipcRenderer.invoke('ai:chat:stop', requestId),
+    listChats: () => ipcRenderer.invoke('ai:chats:list'),
+    getChat: (id) => ipcRenderer.invoke('ai:chats:get', id),
+    saveChat: (chat) => ipcRenderer.invoke('ai:chats:save', chat),
+    deleteChat: (id) => ipcRenderer.invoke('ai:chats:delete', id),
+    onChunk: (callback) => {
+      const listener = (event, data) => callback(data);
+      ipcRenderer.on('ai:stream:chunk', listener);
+      return () => ipcRenderer.removeListener('ai:stream:chunk', listener);
+    },
+    onDone: (callback) => {
+      const listener = (event, data) => callback(data);
+      ipcRenderer.on('ai:stream:done', listener);
+      return () => ipcRenderer.removeListener('ai:stream:done', listener);
+    },
+    onError: (callback) => {
+      const listener = (event, data) => callback(data);
+      ipcRenderer.on('ai:stream:error', listener);
+      return () => ipcRenderer.removeListener('ai:stream:error', listener);
+    }
   }
 });

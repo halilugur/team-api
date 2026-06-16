@@ -374,12 +374,16 @@ function setupPanelResizers() {
   const sidebarResizer = document.getElementById('sidebarResizer');
   const responsePanel = document.getElementById('responsePanel');
   const responseResizer = document.getElementById('responseResizer');
+  const chatPanel = document.getElementById('chatPanel');
+  const chatResizer = document.getElementById('chatResizer');
 
   // Restore saved sizes.
   const savedSidebarWidth = parseInt(localStorage.getItem('sidebarWidth'), 10);
   if (savedSidebarWidth && sidebar) sidebar.style.width = savedSidebarWidth + 'px';
   const savedResponseHeight = parseInt(localStorage.getItem('responseHeight'), 10);
   if (savedResponseHeight && responsePanel) responsePanel.style.flex = '0 0 ' + savedResponseHeight + 'px';
+  const savedChatWidth = parseInt(localStorage.getItem('chatWidth'), 10);
+  if (savedChatWidth && chatPanel) chatPanel.style.width = savedChatWidth + 'px';
 
   // Sidebar width resizer.
   if (sidebarResizer && sidebar) {
@@ -424,6 +428,31 @@ function setupPanelResizers() {
         responseResizer.classList.remove('active');
         document.body.classList.remove('is-resizing', 'is-resizing-row');
         localStorage.setItem('responseHeight', responsePanel.offsetHeight);
+        window.removeEventListener('mousemove', onMove);
+        window.removeEventListener('mouseup', onUp);
+      };
+      window.addEventListener('mousemove', onMove);
+      window.addEventListener('mouseup', onUp);
+    });
+  }
+
+  // Chat panel width resizer (drag left grows width — it's on the right edge).
+  if (chatResizer && chatPanel) {
+    chatResizer.addEventListener('mousedown', (e) => {
+      if (chatPanel.classList.contains('collapsed')) return;
+      e.preventDefault();
+      chatResizer.classList.add('active');
+      const startX = e.clientX;
+      const startWidth = chatPanel.offsetWidth;
+      document.body.classList.add('is-resizing');
+      const onMove = (ev) => {
+        const w = Math.max(300, Math.min(640, startWidth - (ev.clientX - startX)));
+        chatPanel.style.width = w + 'px';
+      };
+      const onUp = () => {
+        chatResizer.classList.remove('active');
+        document.body.classList.remove('is-resizing');
+        localStorage.setItem('chatWidth', parseInt(chatPanel.style.width, 10) || 380);
         window.removeEventListener('mousemove', onMove);
         window.removeEventListener('mouseup', onUp);
       };
@@ -587,12 +616,32 @@ function setupEventListeners() {
     };
   }
 
+  const btnToggleChat = document.getElementById('btnToggleChat');
+  if (btnToggleChat) {
+    btnToggleChat.onclick = () => {
+      const chatPanel = document.getElementById('chatPanel');
+      if (!chatPanel) return;
+      const isCollapsed = chatPanel.classList.toggle('collapsed');
+      localStorage.setItem('chatCollapsed', isCollapsed);
+      const cResizer = document.getElementById('chatResizer');
+      if (cResizer) cResizer.style.display = isCollapsed ? 'none' : '';
+      if (!isCollapsed && window.refreshAIChatState) window.refreshAIChatState();
+    };
+  }
+
   setupPanelResizers();
 
   window.addEventListener('keydown', (e) => {
     if ((e.ctrlKey || e.metaKey) && e.key === '\\') {
       e.preventDefault();
       const btn = document.getElementById('btnToggleSidebar');
+      if (btn && btn.style.display !== 'none') {
+        btn.click();
+      }
+    }
+    if ((e.ctrlKey || e.metaKey) && e.key === ']') {
+      e.preventDefault();
+      const btn = document.getElementById('btnToggleChat');
       if (btn && btn.style.display !== 'none') {
         btn.click();
       }
@@ -1220,6 +1269,20 @@ async function loadWorkspace(ws) {
   // Hide welcome overlay
   document.getElementById('welcomeScreen').style.display = 'none';
   document.getElementById('btnToggleSidebar').style.display = 'flex';
+  document.getElementById('btnToggleChat').style.display = 'flex';
+
+  // Restore chat panel collapse state (defaults to collapsed/hidden; the colorful
+  // titlebar AI button is the entry point).
+  const chatPanel = document.getElementById('chatPanel');
+  const chatCollapsed = localStorage.getItem('chatCollapsed') !== 'false';
+  if (chatPanel) {
+    chatPanel.classList.toggle('collapsed', chatCollapsed);
+    const cResizer = document.getElementById('chatResizer');
+    if (cResizer) cResizer.style.display = chatCollapsed ? 'none' : '';
+  }
+
+  // Initialize the AI chat module (loads providers, settings, chats).
+  if (window.initAIChat) window.initAIChat();
 
   // Update layout header
   document.getElementById('workspaceTitle').textContent = ws.name;
@@ -3977,4 +4040,173 @@ async function importCollection(jsonData) {
   const saved = await window.teamapi.collections.save(collectionObj);
   return saved;
 }
+
+// =============================================================================
+// AI Chat integration — the assistant reads the active request/response and can
+// apply modifications. Exposed on window for ai-chat.js. Reuses buildRequestSnapshot,
+// renderActiveTabToEditor, executeRequest, and state.lastResponseText.
+// =============================================================================
+
+// Compact text snapshot of the active request + last response, injected into the
+// AI system prompt each turn so the assistant is grounded in what the user is doing.
+function getRequestContextForAI() {
+  if (!state.activeRequest) return 'No active request is open.';
+  const r = state.activeRequest;
+  const lines = [];
+  lines.push('CURRENT REQUEST');
+  lines.push('METHOD: ' + (r.method || 'GET'));
+  lines.push('URL: ' + (r.url || '(none)'));
+  const headers = (r.headers || []).filter(h => h.enabled && h.key);
+  lines.push('HEADERS: ' + (headers.length ? headers.map(h => h.key + ': ' + h.value).join(' | ') : '(none)'));
+  const params = (r.params || []).filter(p => p.enabled && p.key);
+  lines.push('PARAMS: ' + (params.length ? params.map(p => p.key + '=' + p.value).join(' | ') : '(none)'));
+  if (r.auth && r.auth.type && r.auth.type !== 'none') lines.push('AUTH: ' + r.auth.type);
+  if (r.body && r.body.type && r.body.type !== 'none') {
+    lines.push('BODY (' + (r.body.subType || r.body.type) + '):');
+    lines.push(String(r.body.content || '').slice(0, 2000));
+  } else {
+    lines.push('BODY: (none)');
+  }
+  if (state.lastResponseText) {
+    lines.push('');
+    lines.push('LAST RESPONSE (first 1500 chars):');
+    lines.push(String(state.lastResponseText).slice(0, 1500));
+  }
+  return lines.join('\n');
+}
+
+// Apply an array of AI-emitted operations to the active request. Each op is
+// { op: "...", ... }. Mutates state.activeRequest and re-renders the editor in
+// one pass; runs the request if a `send` op is present. Returns { applied, skipped }.
+// Guards each op so malformed input never crashes. No-ops safely with no request.
+async function applyRequestOps(ops) {
+  const result = { applied: [], skipped: [] };
+  if (!Array.isArray(ops)) return result;
+
+  // 1. create_request first — opens a new tab and makes it the active request,
+  //    so any following ops (set_header, send, …) apply to the new request.
+  const remaining = [];
+  for (const op of ops) {
+    if (op && op.op === 'create_request') {
+      try {
+        const newId = 'new-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+        const req = {
+          method: String(op.method || 'GET').toUpperCase(),
+          url: String(op.url || ''),
+          params: [],
+          headers: Array.isArray(op.headers)
+            ? op.headers.map(h => ({ key: String(h.key || ''), value: String(h.value != null ? h.value : ''), enabled: h.enabled !== false }))
+            : [],
+          auth: { type: 'none' },
+          body: op.body
+            ? { type: 'raw', subType: op.body.type || 'json', content: String(op.body.content || ''), formData: [] }
+            : { type: 'none', content: '', formData: [] },
+          preScript: '', postScript: ''
+        };
+        await openRequestInTab(newId, 'new', op.url || 'New Request', req);
+        result.applied.push('new ' + req.method + ' ' + (req.url || 'request'));
+      } catch (e) {
+        result.skipped.push('create_request');
+      }
+    } else {
+      remaining.push(op);
+    }
+  }
+
+  // 2. Apply remaining ops to the (possibly newly created) active request.
+  const r = state.activeRequest;
+  if (!r) {
+    if (typeof renderRequestTabs === 'function') renderRequestTabs();
+    return result;
+  }
+  if (!Array.isArray(r.headers)) r.headers = [];
+  if (!Array.isArray(r.params)) r.params = [];
+  if (!r.body) r.body = { type: 'none', content: '', formData: [] };
+  if (!r.auth) r.auth = { type: 'none' };
+  let doSend = false;
+
+  // Hold the URL<->params sync flag during programmatic edits + re-render.
+  state.isSyncingParams = true;
+  try {
+    for (const op of remaining) {
+      try {
+        switch (op && op.op) {
+          case 'set_method':
+            r.method = String(op.value || 'GET').toUpperCase();
+            result.applied.push('method ' + r.method);
+            break;
+          case 'set_url':
+            r.url = String(op.value || '');
+            result.applied.push('url');
+            break;
+          case 'set_header': {
+            const key = String(op.key || '');
+            const existing = r.headers.find(h => (h.key || '').toLowerCase() === key.toLowerCase());
+            if (existing) existing.value = String(op.value != null ? op.value : '');
+            else r.headers.push({ key, value: String(op.value != null ? op.value : ''), enabled: true });
+            result.applied.push('header ' + key);
+            break;
+          }
+          case 'remove_header': {
+            const key = String(op.key || '').toLowerCase();
+            r.headers = r.headers.filter(h => (h.key || '').toLowerCase() !== key);
+            result.applied.push('remove header ' + op.key);
+            break;
+          }
+          case 'set_param': {
+            const key = String(op.key || '');
+            const existing = r.params.find(p => (p.key || '').toLowerCase() === key.toLowerCase());
+            if (existing) existing.value = String(op.value != null ? op.value : '');
+            else r.params.push({ key, value: String(op.value != null ? op.value : ''), enabled: true });
+            result.applied.push('param ' + key);
+            break;
+          }
+          case 'remove_param': {
+            const key = String(op.key || '').toLowerCase();
+            r.params = r.params.filter(p => (p.key || '').toLowerCase() !== key);
+            result.applied.push('remove param ' + op.key);
+            break;
+          }
+          case 'set_body':
+            r.body = { type: 'raw', subType: String(op.type || 'json'), content: String(op.content || ''), formData: [] };
+            result.applied.push('body');
+            break;
+          case 'set_auth':
+            r.auth = {
+              type: op.type || 'none',
+              token: op.token || '',
+              username: op.username || '',
+              password: op.password || '',
+              key: op.key || '',
+              headerName: op.headerName || 'X-API-Key'
+            };
+            result.applied.push('auth ' + (op.type || 'none'));
+            break;
+          case 'send':
+            doSend = true;
+            result.applied.push('send');
+            break;
+          default:
+            result.skipped.push(op && op.op ? op.op : '(unknown)');
+        }
+      } catch (e) {
+        result.skipped.push(op && op.op ? op.op : '(unknown)');
+      }
+    }
+    if (typeof renderActiveTabToEditor === 'function') renderActiveTabToEditor();
+  } catch (e) {
+    // ignore render errors
+  } finally {
+    state.isSyncingParams = false;
+  }
+
+  if (typeof renderRequestTabs === 'function') renderRequestTabs();
+  if (doSend && typeof executeRequest === 'function') {
+    try { executeRequest(); } catch (e) {}
+  }
+  return result;
+}
+
+window.getRequestContextForAI = getRequestContextForAI;
+window.applyRequestOps = applyRequestOps;
 
