@@ -36,94 +36,231 @@ window.teamapi.environments.save = async function(env) {
   return await originalSaveEnvironment(env);
 };
 
-// Helper: variable interpolator
+// Helper: dynamic variable generators (e.g. {{random.uuid}}, {{timestamp}})
+function tpRandomInt(min, max) { min = Math.ceil(min); max = Math.floor(max); return Math.floor(Math.random() * (max - min + 1)) + min; }
+function tpRandomChars(len, charset) { let s = ''; for (let i = 0; i < len; i++) s += charset[tpRandomInt(0, charset.length - 1)]; return s; }
+function tpGenerateUuid() {
+  try { if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID(); } catch (e) {}
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => { const r = Math.random() * 16 | 0; return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16); });
+}
+
+// Returns a generated value for a known dynamic key, or null if it isn't one.
+// Supports parametric syntax like {{random.int(1,100)}} and random.string(16).
+function resolveDynamicVar(rawKey) {
+  const key = rawKey.trim();
+  const m = key.match(/^([a-zA-Z0-9.$]+)\((.*)\)$/);
+  const base = m ? m[1].toLowerCase() : key.toLowerCase();
+  const args = m ? m[2].split(',').map(s => s.trim()).filter(s => s.length) : [];
+  const num = (i, def) => { const n = parseInt(args[i], 10); return isNaN(n) ? def : n; };
+  const lenArg = (i, def) => { const n = parseInt(args[i], 10); if (isNaN(n)) return def; return Math.max(0, Math.min(n, 1024)); };
+
+  switch (base) {
+    case 'random.uuid': case '$guid': case '$randomuuid': case 'uuid':
+      return tpGenerateUuid();
+    case 'random.int': case '$randomint':
+      return String(tpRandomInt(num(0, 0), num(1, 1000)));
+    case 'random.float': case '$randomfloat':
+      return String(Math.random() * (num(1, 1) - num(0, 0)) + num(0, 0));
+    case 'random.string': case 'random.alpha': case '$randomalpha':
+      return tpRandomChars(lenArg(0, 8), 'abcdefghijklmnopqrstuvwxyz');
+    case 'random.alphanum': case '$randomalphanumeric':
+      return tpRandomChars(lenArg(0, 8), 'abcdefghijklmnopqrstuvwxyz0123456789');
+    case 'random.hex': case '$randomhex':
+      return tpRandomChars(lenArg(0, 8), '0123456789abcdef');
+    case 'random.number':
+      return tpRandomChars(lenArg(0, 8), '0123456789');
+    case 'random.boolean': case '$randomboolean':
+      return Math.random() < 0.5 ? 'true' : 'false';
+    case 'random.color': case '$randomcolor':
+      return '#' + tpRandomChars(6, '0123456789abcdef');
+    case 'random.email':
+      return tpRandomChars(8, 'abcdefghijklmnopqrstuvwxyz') + '@example.com';
+    case 'timestamp': case '$timestamp':
+      return String(Date.now());
+    case 'timestamp.seconds':
+      return String(Math.floor(Date.now() / 1000));
+    case 'datetime': case 'datetime.iso': case '$datetime':
+      return new Date().toISOString();
+    case 'date':
+      return new Date().toISOString().slice(0, 10);
+    case 'time':
+      return new Date().toISOString().slice(11, 19);
+    default:
+      return null;
+  }
+}
+
+// Helper: variable interpolator (resolves {{random.*}}, {{timestamp}}, then env vars)
 function interpolate(text, vars) {
   if (typeof text !== 'string') return text;
   return text.replace(/\{\{([^}]+)\}\}/g, (match, key) => {
     const trimmedKey = key.trim();
+    const dyn = resolveDynamicVar(trimmedKey);
+    if (dyn !== null) return dyn;
     return vars.hasOwnProperty(trimmedKey) ? vars[trimmedKey] : match;
   });
 }
 
-// Helper: parse cURL command to request properties
-function parseCurlCommand(curlString) {
+// Helper: tokenize a shell command string with quote + escape awareness.
+// Handles bash/sh backslash escapes and PowerShell backtick escapes inside double quotes.
+function tokenizeCurl(s) {
   const tokens = [];
-  let current = '';
-  let inDoubleQuote = false;
-  let inSingleQuote = false;
-
-  for (let i = 0; i < curlString.length; i++) {
-    const char = curlString[i];
-    if (char === '"' && !inSingleQuote) {
-      inDoubleQuote = !inDoubleQuote;
-    } else if (char === "'" && !inDoubleQuote) {
-      inSingleQuote = !inSingleQuote;
-    } else if (char === ' ' && !inDoubleQuote && !inSingleQuote) {
-      if (current) {
-        tokens.push(current);
-        current = '';
-      }
-    } else if (char === '\\' && i + 1 < curlString.length && (curlString[i+1] === '\n' || curlString[i+1] === '\r')) {
-      if (curlString[i+1] === '\r') i++;
-      i++;
-    } else {
-      current += char;
+  let cur = '';
+  let started = false;
+  let inD = false, inS = false;
+  const push = () => { tokens.push(cur); cur = ''; started = false; };
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (inS) {
+      if (c === "'") inS = false; else cur += c;
+      continue;
     }
+    if (inD) {
+      if (c === '\\' || c === '`') {
+        const n = s[i + 1];
+        if (n === '"' || n === c || n === '$') { cur += n; i++; }
+        else cur += c;
+        continue;
+      }
+      if (c === '"') inD = false; else cur += c;
+      continue;
+    }
+    if (c === '"') { inD = true; started = true; continue; }
+    if (c === "'") { inS = true; started = true; continue; }
+    if (c === '\\') {
+      const n = s[i + 1];
+      if (n === '"' || n === "'" || n === '\\' || n === ' ' || n === '\t') { cur += n; i++; started = true; }
+      else { cur += c; started = true; }
+      continue;
+    }
+    if (c === ' ' || c === '\t' || c === '\n' || c === '\r') {
+      if (started) push();
+      continue;
+    }
+    cur += c;
+    started = true;
   }
-  if (current) tokens.push(current);
+  if (started) push();
+  return tokens;
+}
 
-  const cleanTokens = tokens.map(t => {
-    let s = t.trim();
-    if (s.startsWith('"') && s.endsWith('"')) s = s.slice(1, -1);
-    else if (s.startsWith("'") && s.endsWith("'")) s = s.slice(1, -1);
-    return s;
-  });
+// Helper: parse a cURL command (bash/sh, Windows cmd, or PowerShell) into request properties.
+function parseCurlCommand(input) {
+  if (!input || typeof input !== 'string') return null;
+  let s = input.trim();
+
+  // Normalize multi-line continuations across shells:
+  //   bash/sh '\' + newline · Windows cmd '^' + newline · PowerShell '`' + newline
+  s = s.replace(/\\\r?\n/g, ' ')
+       .replace(/\^\r?\n/g, ' ')
+       .replace(/`\r?\n/g, ' ');
+
+  const tokens = tokenizeCurl(s);
+  if (!tokens.length) return null;
+
+  // Drop a leading curl / curl.exe token and PowerShell's --% stop-parsing token.
+  const start = /^curl(\.exe)?$/i.test(tokens[0]) ? 1 : 0;
+  const args = tokens.slice(start).filter(t => t !== '--%');
+  if (!args.length) return null;
+
+  // Flags that consume the following token as a value (so it isn't mistaken for the URL).
+  const VALUE_FLAGS = new Set([
+    '-X', '--request', '-H', '--header',
+    '-d', '--data', '--data-raw', '--data-binary', '--data-ascii', '--data-urlencode',
+    '-u', '--user', '-b', '--cookie', '--cookie-jar',
+    '-A', '--user-agent', '-e', '--referer',
+    '-o', '--output', '-w', '--write-out',
+    '-m', '--max-time', '--connect-timeout', '--retry', '--retry-delay',
+    '--url', '-K', '--config', '-x', '--proxy', '-U', '--proxy-user',
+    '-E', '--cert', '--key', '--cacert', '--capath', '--resolve',
+    '-F', '--form', '--form-string', '-D', '--dump-header', '-r', '--range', '--rate'
+  ]);
+  const DATA_FLAGS = new Set(['-d', '--data', '--data-raw', '--data-binary', '--data-ascii', '--data-urlencode']);
 
   let method = 'GET';
   let url = '';
+  let explicitUrl = '';
   const headers = [];
-  let body = '';
+  const dataParts = [];
   let auth = { type: 'none' };
 
-  for (let i = 1; i < cleanTokens.length; i++) {
-    const token = cleanTokens[i];
-    if (token === '-X' || token === '--request') {
-      method = cleanTokens[++i].toUpperCase();
-    } else if (token === '-H' || token === '--header') {
-      const headerVal = cleanTokens[++i];
-      const colonIndex = headerVal.indexOf(':');
-      if (colonIndex !== -1) {
-        const key = headerVal.substring(0, colonIndex).trim();
-        const value = headerVal.substring(colonIndex + 1).trim();
-        headers.push({ key, value, enabled: true });
-      }
-    } else if (token === '-d' || token === '--data' || token === '--data-raw' || token === '--data-binary') {
-      body = cleanTokens[++i];
+  let i = 0;
+  while (i < args.length) {
+    const tok = args[i];
+
+    if (!tok.startsWith('-') || tok === '-') {
+      // Non-flag token → URL candidate (first one wins).
+      if (!url) url = tok;
+      i++;
+      continue;
+    }
+
+    let flag, inline;
+    if (tok.startsWith('--')) {
+      const eq = tok.indexOf('=');
+      if (eq !== -1) { flag = tok.slice(0, eq); inline = tok.slice(eq + 1); }
+      else { flag = tok; inline = undefined; }
+    } else {
+      // Short flag(s): first two chars are the flag; the rest is an attached value (-XPOST) or combined booleans (-kLsI).
+      flag = tok.slice(0, 2);
+      inline = tok.length > 2 ? tok.slice(2) : undefined;
+    }
+
+    const takesValue = VALUE_FLAGS.has(flag) || DATA_FLAGS.has(flag);
+
+    if (!takesValue) {
+      // Boolean flag. A few carry meaning.
+      if (flag === '-I' || flag === '--head' || tok.includes('I')) method = 'HEAD';
+      i++;
+      continue;
+    }
+
+    // Resolve the value: inline (attached or =form) else the next token.
+    const value = inline !== undefined ? inline : args[i + 1];
+    if (inline === undefined && i + 1 < args.length) i++; // consume next token
+
+    if (DATA_FLAGS.has(flag)) {
+      if (value !== undefined) dataParts.push(value);
       if (method === 'GET') method = 'POST';
-    } else if (token === '-u' || token === '--user') {
-      const userPass = cleanTokens[++i];
-      const parts = userPass.split(':');
-      auth = {
-        type: 'basic',
-        username: parts[0] || '',
-        password: parts[1] || ''
-      };
-    } else if (token.startsWith('http://') || token.startsWith('https://') || token.includes('localhost') || token.includes('127.0.0.1')) {
-      url = token;
-    }
-  }
-
-  if (!url) {
-    for (let i = 1; i < cleanTokens.length; i++) {
-      const token = cleanTokens[i];
-      const prev = cleanTokens[i - 1];
-      if (!token.startsWith('-') && !['-X', '--request', '-H', '--header', '-d', '--data', '--data-raw', '--data-binary', '-u', '--user'].includes(prev)) {
-        url = token;
-        break;
+    } else if (flag === '-X' || flag === '--request') {
+      if (value) method = String(value).toUpperCase();
+    } else if (flag === '-H' || flag === '--header') {
+      if (value !== undefined) {
+        const ci = value.indexOf(':');
+        if (ci !== -1) headers.push({ key: value.slice(0, ci).trim(), value: value.slice(ci + 1).trim(), enabled: true });
+      }
+    } else if (flag === '-u' || flag === '--user') {
+      if (value !== undefined) {
+        const p = String(value).split(':');
+        auth = { type: 'basic', username: p[0] || '', password: p.slice(1).join(':') || '' };
+      }
+    } else if (flag === '--url') {
+      if (value) explicitUrl = String(value);
+    } else if (flag === '-b' || flag === '--cookie') {
+      if (value !== undefined && !headers.some(h => h.key.toLowerCase() === 'cookie')) {
+        headers.push({ key: 'Cookie', value: String(value), enabled: true });
+      }
+    } else if ((flag === '-A' || flag === '--user-agent') && value) {
+      if (!headers.some(h => h.key.toLowerCase() === 'user-agent')) {
+        headers.push({ key: 'User-Agent', value: String(value), enabled: true });
+      }
+    } else if ((flag === '-e' || flag === '--referer') && value) {
+      if (!headers.some(h => h.key.toLowerCase() === 'referer')) {
+        headers.push({ key: 'Referer', value: String(value), enabled: true });
       }
     }
+    // Other value flags: value already consumed (otherwise ignored).
+    i++;
   }
 
+  if (explicitUrl) url = explicitUrl;
+  if (!url) {
+    for (const t of args) {
+      if (!t.startsWith('-') && /^https?:\/\//i.test(t)) { url = t; break; }
+    }
+  }
+
+  const body = dataParts.join('&');
   return { method, url, headers, body, auth };
 }
 
@@ -228,6 +365,71 @@ function showToast(message, type = 'info') {
       toast.style.opacity = '0';
       setTimeout(() => toast.remove(), 200);
     }, 3000);
+  }
+}
+
+// Drag-to-resize for the sidebar (width) and response panel (height). Sizes persist to localStorage.
+function setupPanelResizers() {
+  const sidebar = document.querySelector('.sidebar');
+  const sidebarResizer = document.getElementById('sidebarResizer');
+  const responsePanel = document.getElementById('responsePanel');
+  const responseResizer = document.getElementById('responseResizer');
+
+  // Restore saved sizes.
+  const savedSidebarWidth = parseInt(localStorage.getItem('sidebarWidth'), 10);
+  if (savedSidebarWidth && sidebar) sidebar.style.width = savedSidebarWidth + 'px';
+  const savedResponseHeight = parseInt(localStorage.getItem('responseHeight'), 10);
+  if (savedResponseHeight && responsePanel) responsePanel.style.flex = '0 0 ' + savedResponseHeight + 'px';
+
+  // Sidebar width resizer.
+  if (sidebarResizer && sidebar) {
+    sidebarResizer.addEventListener('mousedown', (e) => {
+      if (sidebar.classList.contains('collapsed')) return;
+      e.preventDefault();
+      sidebarResizer.classList.add('active');
+      const startX = e.clientX;
+      const startWidth = sidebar.offsetWidth;
+      document.body.classList.add('is-resizing');
+      const onMove = (ev) => {
+        const w = Math.max(180, Math.min(560, startWidth + (ev.clientX - startX)));
+        sidebar.style.width = w + 'px';
+      };
+      const onUp = () => {
+        sidebarResizer.classList.remove('active');
+        document.body.classList.remove('is-resizing');
+        localStorage.setItem('sidebarWidth', parseInt(sidebar.style.width, 10) || 260);
+        window.removeEventListener('mousemove', onMove);
+        window.removeEventListener('mouseup', onUp);
+      };
+      window.addEventListener('mousemove', onMove);
+      window.addEventListener('mouseup', onUp);
+    });
+  }
+
+  // Response panel height resizer.
+  if (responseResizer && responsePanel) {
+    responseResizer.addEventListener('mousedown', (e) => {
+      if (responsePanel.classList.contains('collapsed')) return;
+      e.preventDefault();
+      responseResizer.classList.add('active');
+      const startY = e.clientY;
+      const startHeight = responsePanel.offsetHeight;
+      document.body.classList.add('is-resizing', 'is-resizing-row');
+      const onMove = (ev) => {
+        // Dragging up increases the panel height.
+        const h = Math.max(120, Math.min(window.innerHeight * 0.85, startHeight - (ev.clientY - startY)));
+        responsePanel.style.flex = '0 0 ' + h + 'px';
+      };
+      const onUp = () => {
+        responseResizer.classList.remove('active');
+        document.body.classList.remove('is-resizing', 'is-resizing-row');
+        localStorage.setItem('responseHeight', responsePanel.offsetHeight);
+        window.removeEventListener('mousemove', onMove);
+        window.removeEventListener('mouseup', onUp);
+      };
+      window.addEventListener('mousemove', onMove);
+      window.addEventListener('mouseup', onUp);
+    });
   }
 }
 
@@ -340,14 +542,52 @@ function setupEventListeners() {
     placeholderNewTabBtn.onclick = createNewTab;
   }
 
+  const btnSave = document.getElementById('btnSave');
+  if (btnSave) btnSave.onclick = saveCurrentRequest;
+
+  // Save split-button: default click = Save; caret opens dropdown (Save As…)
+  const saveMenu = document.getElementById('saveMenu');
+  const btnSaveCaret = document.getElementById('btnSaveCaret');
+  const saveMenuItemSaveAs = document.getElementById('saveMenuItemSaveAs');
+  if (btnSaveCaret && saveMenu) {
+    btnSaveCaret.onclick = (e) => {
+      e.stopPropagation();
+      saveMenu.classList.toggle('open');
+    };
+  }
+  if (saveMenuItemSaveAs) {
+    saveMenuItemSaveAs.onclick = () => {
+      if (saveMenu) saveMenu.classList.remove('open');
+      saveAsCurrentRequest();
+    };
+  }
+  // Close the dropdown on outside click.
+  window.addEventListener('click', (e) => {
+    if (!saveMenu || !saveMenu.classList.contains('open')) return;
+    if (!e.target.closest('#saveSplit')) saveMenu.classList.remove('open');
+  });
+
+  const btnCancelSaveReq = document.getElementById('btnCancelSaveReq');
+  if (btnCancelSaveReq) btnCancelSaveReq.onclick = () => closeDialog('modalSaveRequest');
+
+  const btnSaveReqNewCollection = document.getElementById('btnSaveReqNewCollection');
+  if (btnSaveReqNewCollection) btnSaveReqNewCollection.onclick = () => {
+    closeDialog('modalSaveRequest');
+    openDialog('modalCreateCollection');
+  };
+
   const btnToggleSidebar = document.getElementById('btnToggleSidebar');
   if (btnToggleSidebar) {
     btnToggleSidebar.onclick = () => {
       const sidebar = document.querySelector('.sidebar');
       const isCollapsed = sidebar.classList.toggle('collapsed');
       localStorage.setItem('sidebarCollapsed', isCollapsed);
+      const sResizer = document.getElementById('sidebarResizer');
+      if (sResizer) sResizer.style.display = isCollapsed ? 'none' : '';
     };
   }
+
+  setupPanelResizers();
 
   window.addEventListener('keydown', (e) => {
     if ((e.ctrlKey || e.metaKey) && e.key === '\\') {
@@ -357,12 +597,16 @@ function setupEventListeners() {
         btn.click();
       }
     }
+    if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) {
+      e.preventDefault();
+      saveCurrentRequest();
+    }
   });
 
   // URL Bar & SEND Action
   document.getElementById('requestUrl').oninput = (e) => {
     const val = e.target.value.trim();
-    if (val.startsWith('curl ')) {
+    if (/^curl(\.exe)?[\s]/i.test(val)) {
       try {
         const parsed = parseCurlCommand(e.target.value);
         if (parsed) {
@@ -392,7 +636,7 @@ function setupEventListeners() {
               state.activeRequest.body = { type: 'none', content: '', formData: [] };
             }
             
-            loadRequestIntoEditor(state.activeCollectionId, state.activeRequestId);
+            renderActiveTabToEditor();
             showToast('Parsed cURL command successfully!', 'success');
             queueSave();
           } else {
@@ -601,6 +845,8 @@ function setupEventListeners() {
 
   // Environment Selector (Bottom status bar)
   document.getElementById('envSelector').onchange = handleEnvSelectorChange;
+  const btnManageEnvs = document.getElementById('btnManageEnvs');
+  if (btnManageEnvs) btnManageEnvs.onclick = openEnvironmentManager;
 
   // Environment Manager Modal controls
   document.getElementById('btnEnvCreateNew').onclick = createNewEnvironment;
@@ -802,6 +1048,26 @@ function openPromptDialog(title, label, defaultValue, callback) {
   };
 }
 
+// Recent workspaces (latest RECENT_MAX shown on the home screen)
+const RECENT_MAX = 5;
+function deriveWorkspaceName(path) {
+  const separator = path.includes('\\') ? '\\' : '/';
+  const parts = path.split(separator);
+  return parts[parts.length - 1] || path;
+}
+function getRecentWorkspaces() {
+  try { return JSON.parse(localStorage.getItem('recentWorkspaces') || '[]'); } catch (e) { return []; }
+}
+function addRecentWorkspace(name, path) {
+  if (!path) return;
+  let list = getRecentWorkspaces().filter(ws => ws.path !== path);
+  list.unshift({ name: name || deriveWorkspaceName(path), path });
+  localStorage.setItem('recentWorkspaces', JSON.stringify(list.slice(0, RECENT_MAX)));
+}
+function removeRecentWorkspace(path) {
+  localStorage.setItem('recentWorkspaces', JSON.stringify(getRecentWorkspaces().filter(ws => ws.path !== path)));
+}
+
 function showWelcomeScreen() {
   const welcomeScreen = document.getElementById('welcomeScreen');
   if (!welcomeScreen) return;
@@ -814,43 +1080,49 @@ function showWelcomeScreen() {
     backBtn.style.display = state.currentWorkspace ? 'flex' : 'none';
   }
 
-  const lastPath = localStorage.getItem('lastWorkspacePath');
+  let recents = getRecentWorkspaces();
+  // One-time migration from the legacy single-path key.
+  if (recents.length === 0) {
+    const legacy = localStorage.getItem('lastWorkspacePath');
+    if (legacy) recents = [{ name: deriveWorkspaceName(legacy), path: legacy }];
+  }
+
   const recentEl = document.getElementById('welcomeRecent');
-  if (recentEl) {
-    if (lastPath) {
+  const listEl = document.getElementById('recentWorkspaceList');
+  if (recentEl && listEl) {
+    if (recents.length > 0) {
       recentEl.style.display = 'flex';
-      
-      const separator = lastPath.includes('\\') ? '\\' : '/';
-      const parts = lastPath.split(separator);
-      const folderName = parts[parts.length - 1] || lastPath;
-      
-      const itemEl = document.getElementById('recentWorkspaceItem');
-      if (itemEl) {
+      listEl.innerHTML = '';
+      recents.forEach(ws => {
+        const folderName = ws.name || deriveWorkspaceName(ws.path);
+        const itemEl = document.createElement('div');
+        itemEl.className = 'recent-workspace-item';
         itemEl.innerHTML = `
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--accent-blue); flex-shrink: 0; margin-right: 4px;">
             <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
           </svg>
           <span style="font-weight: 700; color: var(--text-primary); margin-right: 8px;">${folderName}</span>
-          <span style="color: var(--text-muted); font-size: 11px; font-weight: 400; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; text-align: left;">${lastPath}</span>
+          <span style="color: var(--text-muted); font-size: 11px; font-weight: 400; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; text-align: left;">${ws.path}</span>
           <svg class="recent-arrow" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="color: var(--text-dim); transition: transform 0.2s ease; margin-left: 4px;">
             <polyline points="9 18 15 12 9 6"></polyline>
           </svg>
         `;
         itemEl.onclick = async () => {
           try {
-            const ws = await window.teamapi.workspace.openPath(lastPath);
-            if (ws) {
-              await loadWorkspace(ws);
+            const opened = await window.teamapi.workspace.openPath(ws.path);
+            if (opened) {
+              await loadWorkspace(opened);
             } else {
               showToast('Workspace path no longer exists on disk', 'error');
-              localStorage.removeItem('lastWorkspacePath');
+              removeRecentWorkspace(ws.path);
               showWelcomeScreen();
             }
           } catch (err) {
             showToast('Failed to open workspace: ' + err.message, 'error');
           }
         };
-      }
+        listEl.appendChild(itemEl);
+      });
     } else {
       recentEl.style.display = 'none';
     }
@@ -939,6 +1211,8 @@ async function loadWorkspace(ws) {
   const sidebarCollapsed = localStorage.getItem('sidebarCollapsed') === 'true';
   if (sidebarCollapsed) {
     sidebar.classList.add('collapsed');
+    const sResizer = document.getElementById('sidebarResizer');
+    if (sResizer) sResizer.style.display = 'none';
   } else {
     sidebar.classList.remove('collapsed');
   }
@@ -953,6 +1227,7 @@ async function loadWorkspace(ws) {
 
   // Persist current workspace path
   localStorage.setItem('lastWorkspacePath', ws.path);
+  addRecentWorkspace(ws.name, ws.path);
 
   // Load data components
   await refreshCollections();
@@ -1105,63 +1380,11 @@ function renderCollectionsTree() {
       contentPane.className = 'collection-content tree-node';
       contentPane.id = `col-content-${colId}`;
 
-      // 1. Render Folders
+      // 1. Render root folders (recursively nests sub-folders + requests)
       if (colDetail.folders && colDetail.folders.length > 0) {
-        colDetail.folders.forEach(folder => {
-          const folderId = folder.id;
-          const folderExpanded = state.expandedNodes.has(folderId);
-
-          const folderNode = document.createElement('div');
-          folderNode.className = 'folder-node';
-
-          const folderHeader = document.createElement('div');
-          folderHeader.className = 'folder-item';
-          folderHeader.dataset.colId = colId;
-          folderHeader.dataset.folderId = folderId;
-          folderHeader.dataset.type = 'folder';
-
-          const fChevron = document.createElement('span');
-          fChevron.className = `chevron ${folderExpanded ? '' : 'collapsed'}`;
-          fChevron.innerHTML = '&#9660;';
-          folderHeader.appendChild(fChevron);
-
-          const fName = document.createElement('span');
-          fName.className = 'item-name';
-          fName.textContent = folder.name;
-          folderHeader.appendChild(fName);
-
-          folderNode.appendChild(folderHeader);
-
-          // Click folder to expand
-          folderHeader.onclick = (evt) => {
-            evt.stopPropagation();
-            if (folderExpanded) {
-              state.expandedNodes.delete(folderId);
-            } else {
-              state.expandedNodes.add(folderId);
-            }
-            saveExpandedNodes();
-            renderCollectionsTree();
-          };
-
-          // Render requests inside folder if expanded
-          if (folderExpanded) {
-            const folderContent = document.createElement('div');
-            folderContent.className = 'folder-content tree-node';
-
-            const folderRequests = colDetail.requests.filter(r => r.folderId === folderId);
-            if (folderRequests.length === 0) {
-              folderContent.innerHTML = '<div style="color: var(--text-dim); padding: 4px 10px; font-size: 11px;">Empty folder</div>';
-            } else {
-              folderRequests.forEach(req => {
-                const reqItem = createRequestTreeItem(req, colId);
-                folderContent.appendChild(reqItem);
-              });
-            }
-            folderNode.appendChild(folderContent);
-          }
-
-          contentPane.appendChild(folderNode);
+        const rootFolders = colDetail.folders.filter(f => !f.parentId);
+        rootFolders.forEach(folder => {
+          contentPane.appendChild(renderFolderNode(folder, colId, colDetail));
         });
       }
 
@@ -1181,6 +1404,66 @@ function renderCollectionsTree() {
 
     container.appendChild(colNode);
   });
+}
+
+// Recursively render a folder node: its header +, when expanded, its sub-folders and direct requests.
+function renderFolderNode(folder, colId, colDetail) {
+  const folderId = folder.id;
+  const folderExpanded = state.expandedNodes.has(folderId);
+
+  const folderNode = document.createElement('div');
+  folderNode.className = 'folder-node';
+
+  const folderHeader = document.createElement('div');
+  folderHeader.className = 'folder-item';
+  folderHeader.dataset.colId = colId;
+  folderHeader.dataset.folderId = folderId;
+  folderHeader.dataset.type = 'folder';
+
+  const fChevron = document.createElement('span');
+  fChevron.className = `chevron ${folderExpanded ? '' : 'collapsed'}`;
+  fChevron.innerHTML = '&#9660;';
+  folderHeader.appendChild(fChevron);
+
+  const fName = document.createElement('span');
+  fName.className = 'item-name';
+  fName.textContent = folder.name;
+  folderHeader.appendChild(fName);
+
+  folderNode.appendChild(folderHeader);
+
+  folderHeader.onclick = (evt) => {
+    evt.stopPropagation();
+    if (folderExpanded) {
+      state.expandedNodes.delete(folderId);
+    } else {
+      state.expandedNodes.add(folderId);
+    }
+    saveExpandedNodes();
+    renderCollectionsTree();
+  };
+
+  if (folderExpanded) {
+    const folderContent = document.createElement('div');
+    folderContent.className = 'folder-content tree-node';
+
+    const subFolders = (colDetail.folders || []).filter(f => f.parentId === folderId);
+    subFolders.forEach(sub => {
+      folderContent.appendChild(renderFolderNode(sub, colId, colDetail));
+    });
+
+    const folderRequests = (colDetail.requests || []).filter(r => r.folderId === folderId);
+    if (subFolders.length === 0 && folderRequests.length === 0) {
+      folderContent.innerHTML = '<div style="color: var(--text-dim); padding: 4px 10px; font-size: 11px;">Empty folder</div>';
+    } else {
+      folderRequests.forEach(req => {
+        folderContent.appendChild(createRequestTreeItem(req, colId));
+      });
+    }
+    folderNode.appendChild(folderContent);
+  }
+
+  return folderNode;
 }
 
 function createRequestTreeItem(req, colId) {
@@ -1393,12 +1676,14 @@ function renderRequestTabs() {
     // Close button
     const closeSpan = document.createElement('span');
     closeSpan.className = 'request-tab-close';
-    closeSpan.innerHTML = '×';
+    closeSpan.innerHTML = '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M6 6 L18 18 M18 6 L6 18"/></svg>';
     closeSpan.onclick = (e) => closeTab(tab.id, e);
     tabEl.appendChild(closeSpan);
 
     container.appendChild(tabEl);
   });
+
+  refreshSaveButtonTarget();
 }
 
 function renderActiveTabToEditor() {
@@ -1476,6 +1761,13 @@ function renderActiveTabToEditor() {
     });
     document.getElementById('preScriptPane').style.display = 'flex';
     document.getElementById('postScriptPane').style.display = 'none';
+  }
+
+  // Restore the saved response for this request, or clear the panel.
+  if (req.lastResponse) {
+    applyResponseToView(req.lastResponse);
+  } else {
+    clearResponseView();
   }
 }
 
@@ -1811,70 +2103,14 @@ async function executeRequest() {
     btnSend.textContent = 'SEND';
     btnSend.disabled = false;
 
-    // Show response status badge details
-    const statusBadge = document.getElementById('responseStatus');
-    statusBadge.textContent = result.status;
-    statusBadge.style.display = 'block';
+    // Render the response into the view (shared with restore-on-open).
+    applyResponseToView(result);
 
-    // Render status badge colors
-    statusBadge.className = 'response-badge';
-    if (result.status >= 200 && result.status < 300) {
-      statusBadge.style.backgroundColor = 'var(--accent-green)';
-    } else if (result.status >= 300 && result.status < 400) {
-      statusBadge.style.backgroundColor = 'var(--accent-yellow)';
-    } else if (result.status >= 400) {
-      statusBadge.style.backgroundColor = 'var(--accent-red)';
-    } else {
-      statusBadge.style.backgroundColor = 'var(--text-dim)';
+    // Persist the latest response on the request so saved requests keep it.
+    if (state.activeRequest) {
+      state.activeRequest.lastResponse = makeResponseSnapshot(result);
+      queueSave();
     }
-
-    // Response time and size
-    document.getElementById('responseTime').textContent = `${result.duration}ms`;
-    document.getElementById('responseSize').textContent = formatBytes(result.size);
-    document.getElementById('responseMeta').style.display = 'flex';
-
-    // Show control layouts
-    document.getElementById('prettyRawToggle').style.display = 'flex';
-    document.getElementById('btnCopyResponse').style.display = 'block';
-    
-    // Toggle search bar visibility
-    document.getElementById('responseSearchBar').style.display = (result.error || !result.body) ? 'none' : 'flex';
-    document.getElementById('responseSearchInput').value = '';
-    document.getElementById('responseSearchCount').textContent = '0/0';
-
-    // Body content display
-    if (result.error) {
-      state.lastResponseText = result.error;
-      state.lastResponseIsBinary = false;
-      state.lastResponseContentType = '';
-      renderResponseBody(`Error sending request:\n${result.error}`, 'raw');
-      statusBadge.textContent = 'Error';
-      statusBadge.style.backgroundColor = 'var(--accent-red)';
-    } else {
-      state.lastResponseText = result.body || '';
-      state.lastResponseIsBinary = result.isBinary || false;
-      state.lastResponseContentType = result.contentType || '';
-      
-      let activeMode = document.querySelector('#prettyRawToggle .toggle-btn.active').dataset.mode;
-      const isHtml = result.contentType && result.contentType.toLowerCase().includes('html');
-      if (isHtml) {
-        document.querySelectorAll('#prettyRawToggle .toggle-btn').forEach(btn => {
-          btn.classList.toggle('active', btn.dataset.mode === 'preview');
-        });
-        activeMode = 'preview';
-      }
-      
-      renderResponseBody(result.body, activeMode);
-    }
-
-    // Headers list
-    renderResponseHeaders(result.headers);
-
-    // Scripts sandbox log display
-    renderScriptLogs(result.scriptLog);
-
-    // Render test results
-    renderTestResults(result.tests);
 
     // Save environment updates back to filesystem if script mutated them
     if (state.activeEnv && result.updatedEnvVars) {
@@ -1891,6 +2127,108 @@ async function executeRequest() {
     btnSend.disabled = false;
     showToast('Execution error: ' + err.message, 'error');
   }
+}
+
+// Build a persistable snapshot of the latest response (stored on the request).
+function makeResponseSnapshot(result) {
+  return {
+    status: result.status,
+    duration: result.duration,
+    size: result.size,
+    body: result.body || '',
+    isBinary: result.isBinary || false,
+    contentType: result.contentType || '',
+    headers: result.headers || [],
+    error: result.error || null,
+    scriptLog: result.scriptLog || [],
+    tests: result.tests || [],
+    savedAt: new Date().toISOString()
+  };
+}
+
+// Render a response (live result or stored snapshot) into the response panel.
+function applyResponseToView(result) {
+  if (!result) { clearResponseView(); return; }
+
+  const statusBadge = document.getElementById('responseStatus');
+  statusBadge.textContent = result.status;
+  statusBadge.style.display = 'block';
+
+  statusBadge.className = 'response-badge';
+  if (result.status >= 200 && result.status < 300) {
+    statusBadge.style.backgroundColor = 'var(--accent-green)';
+  } else if (result.status >= 300 && result.status < 400) {
+    statusBadge.style.backgroundColor = 'var(--accent-yellow)';
+  } else if (result.status >= 400) {
+    statusBadge.style.backgroundColor = 'var(--accent-red)';
+  } else {
+    statusBadge.style.backgroundColor = 'var(--text-dim)';
+  }
+
+  document.getElementById('responseTime').textContent = `${result.duration}ms`;
+  document.getElementById('responseSize').textContent = formatBytes(result.size);
+  document.getElementById('responseMeta').style.display = 'flex';
+
+  document.getElementById('prettyRawToggle').style.display = 'flex';
+  document.getElementById('btnCopyResponse').style.display = 'block';
+
+  document.getElementById('responseSearchBar').style.display = (result.error || !result.body) ? 'none' : 'flex';
+  document.getElementById('responseSearchInput').value = '';
+  document.getElementById('responseSearchCount').textContent = '0/0';
+
+  if (result.error) {
+    state.lastResponseText = result.error;
+    state.lastResponseIsBinary = false;
+    state.lastResponseContentType = '';
+    renderResponseBody(`Error sending request:\n${result.error}`, 'raw');
+    statusBadge.textContent = 'Error';
+    statusBadge.style.backgroundColor = 'var(--accent-red)';
+  } else {
+    state.lastResponseText = result.body || '';
+    state.lastResponseIsBinary = result.isBinary || false;
+    state.lastResponseContentType = result.contentType || '';
+
+    let activeMode = document.querySelector('#prettyRawToggle .toggle-btn.active').dataset.mode;
+    const isHtml = result.contentType && result.contentType.toLowerCase().includes('html');
+    if (isHtml) {
+      document.querySelectorAll('#prettyRawToggle .toggle-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.mode === 'preview');
+      });
+      activeMode = 'preview';
+    }
+
+    renderResponseBody(result.body, activeMode);
+  }
+
+  renderResponseHeaders(result.headers);
+  renderScriptLogs(result.scriptLog);
+  renderTestResults(result.tests);
+}
+
+// Reset the response panel to its empty placeholder state.
+function clearResponseView() {
+  const statusBadge = document.getElementById('responseStatus');
+  if (statusBadge) {
+    statusBadge.textContent = '';
+    statusBadge.style.display = 'none';
+    statusBadge.className = 'response-badge';
+    statusBadge.style.backgroundColor = '';
+  }
+  ['responseMeta', 'prettyRawToggle', 'btnCopyResponse', 'responseSearchBar', 'responseJsonPathBar'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = 'none';
+  });
+
+  state.lastResponseText = '';
+  state.lastResponseIsBinary = false;
+  state.lastResponseContentType = '';
+
+  const display = document.getElementById('responseBodyDisplay');
+  if (display) display.innerHTML = '<div style="color: var(--text-dim); text-align: center; margin-top: 40px;">Send a request to see output</div>';
+
+  if (typeof renderResponseHeaders === 'function') renderResponseHeaders([]);
+  if (typeof renderScriptLogs === 'function') renderScriptLogs([]);
+  if (typeof renderTestResults === 'function') renderTestResults([]);
 }
 
 // Bytes formatter
@@ -2043,36 +2381,26 @@ function copyResponseToClipboard() {
 // Environments management
 function populateEnvironmentDropdown() {
   const selector = document.getElementById('envSelector');
-  // Clear extra options, keep the base ones
-  selector.innerHTML = `
-    <option value="none">No Environment</option>
-    <option value="edit-envs">-- Manage Environments --</option>
-  `;
+  selector.innerHTML = `<option value="none">No Environment</option>`;
 
   state.environments.forEach(env => {
     const option = document.createElement('option');
     option.value = env.id;
     option.textContent = env.name;
-    selector.insertBefore(option, selector.lastElementChild);
+    selector.appendChild(option);
   });
 
-  selector.value = state.activeEnvId;
+  selector.value = state.activeEnvId || 'none';
 }
 
 function handleEnvSelectorChange(e) {
   const val = e.target.value;
-  if (val === 'edit-envs') {
-    // Revert dropdown index
-    e.target.value = state.activeEnvId;
-    openEnvironmentManager();
-  } else {
-    state.activeEnvId = val;
-    state.activeEnv = state.environments.find(env => env.id === val) || null;
-    if (state.currentWorkspace) {
-      localStorage.setItem(`activeEnvId:${state.currentWorkspace.path}`, val);
-    }
-    showToast(`Switched environment to: ${state.activeEnv ? state.activeEnv.name : 'None'}`);
+  state.activeEnvId = val;
+  state.activeEnv = state.environments.find(env => env.id === val) || null;
+  if (state.currentWorkspace) {
+    localStorage.setItem(`activeEnvId:${state.currentWorkspace.path}`, val);
   }
+  showToast(`Switched environment to: ${state.activeEnv ? state.activeEnv.name : 'None'}`);
 }
 
 // Environment Management Dialog Modal
@@ -2303,6 +2631,7 @@ function showContextMenu(x, y, item) {
     const colId = item.dataset.colId;
     const folderId = item.dataset.folderId;
     addContextMenuItem('New Request', () => createRequestPrompt(colId, folderId));
+    addContextMenuItem('New Folder', () => createFolderPrompt(colId, folderId));
     addContextMenuItem('Rename Folder', () => renameFolderPrompt(colId, folderId));
     addContextMenuItem('Delete Folder', () => deleteFolderPrompt(colId, folderId));
   } else if (type === 'request') {
@@ -2371,14 +2700,14 @@ function createRequestPrompt(colId, folderId = null) {
   });
 }
 
-function createFolderPrompt(colId) {
+function createFolderPrompt(colId, parentFolderId = null) {
   openPromptDialog('New Folder', 'Folder Name', 'New Folder', async (name) => {
     const col = state.loadedCollections[colId];
     if (!col) return;
     const newFolder = {
       id: window.crypto.randomUUID ? window.crypto.randomUUID() : Math.random().toString(36).substring(2),
-      name,
-      requestIds: []
+      parentId: parentFolderId,
+      name
     };
     col.folders.push(newFolder);
     try {
@@ -2425,14 +2754,17 @@ function renameFolderPrompt(colId, folderId) {
 }
 
 async function deleteFolderPrompt(colId, folderId) {
-  if (!confirm('Delete this folder? Requests inside will be moved to root collection.')) return;
+  if (!confirm('Delete this folder? Its requests and sub-folders will be moved to the parent.')) return;
   const col = state.loadedCollections[colId];
-  col.folders = col.folders.filter(f => f.id !== folderId);
+  if (!col) return;
 
-  // Set folderId of child requests to null
-  col.requests.forEach(r => {
-    if (r.folderId === folderId) r.folderId = null;
-  });
+  // Re-parent direct sub-folders and requests to the deleted folder's parent (or root).
+  const folder = (col.folders || []).find(f => f.id === folderId);
+  const grandparent = folder ? folder.parentId : null;
+  (col.folders || []).forEach(f => { if (f.parentId === folderId) f.parentId = grandparent; });
+  (col.requests || []).forEach(r => { if (r.folderId === folderId) r.folderId = grandparent; });
+
+  col.folders = col.folders.filter(f => f.id !== folderId);
 
   try {
     await window.teamapi.collections.save(col);
@@ -2511,18 +2843,336 @@ async function deleteRequestPrompt(colId, reqId) {
   }
 }
 
+// ── Save / Save As ──────────────────────────────────────────────────────────
+let saveReqDialogMode = 'save';   // 'save' | 'saveAs'
+let saveReqOriginTabId = null;    // tab to replace when saving an unsaved tab
+
+function getActiveTab() {
+  if (!state.activeTabId) return null;
+  return state.tabs.find(t => t.id === state.activeTabId) || null;
+}
+
+// Build a fresh, id-less request object from the current editor state.
+function buildRequestSnapshot() {
+  const src = state.activeRequest || {};
+  const snap = JSON.parse(JSON.stringify(src));
+  delete snap.id;
+  delete snap.folderId;
+  delete snap.name;
+  if (!Array.isArray(snap.params)) snap.params = [];
+  if (!Array.isArray(snap.headers)) snap.headers = [];
+  if (!snap.auth) snap.auth = { type: 'none' };
+  if (!snap.body) snap.body = { type: 'none', content: '', formData: [] };
+  if (!Array.isArray(snap.body.formData)) snap.body.formData = [];
+  if (typeof snap.preScript !== 'string') snap.preScript = '';
+  if (typeof snap.postScript !== 'string') snap.postScript = '';
+  if (typeof snap.description !== 'string') snap.description = '';
+  return snap;
+}
+
+// "Collection" or "Collection › Folder" label for toasts / buttons.
+function describeCollectionPath(col, folderId) {
+  if (!col) return 'collection';
+  let label = col.name;
+  if (folderId && Array.isArray(col.folders)) {
+    const folder = col.folders.find(f => f.id === folderId);
+    if (folder) label += ' › ' + folder.name;
+  }
+  return label;
+}
+
+async function saveCurrentRequest() {
+  const tab = getActiveTab();
+  if (!tab) {
+    showToast('No active request to save', 'error');
+    return;
+  }
+  // Already saved → one-click persist to its own collection.
+  if (tab.type === 'saved' && tab.collectionId && state.loadedCollections[tab.collectionId]) {
+    try {
+      const col = state.loadedCollections[tab.collectionId];
+      await window.teamapi.collections.save(col);
+      showToast('Saved to ' + describeCollectionPath(col, tab.request && tab.request.folderId), 'success');
+    } catch (e) {
+      showToast('Save failed: ' + e.message, 'error');
+    }
+    return;
+  }
+  // New / history → must pick a destination.
+  openSaveRequestDialog('save');
+}
+
+function saveAsCurrentRequest() {
+  if (!getActiveTab()) {
+    showToast('No active request to save', 'error');
+    return;
+  }
+  openSaveRequestDialog('saveAs');
+}
+
+// Refresh the live "Saving to: …" line from current dialog selections.
+function updateSaveReqTargetLabel() {
+  const targetEl = document.getElementById('saveReqTarget');
+  const colSelect = document.getElementById('saveReqCollection');
+  const folderSelect = document.getElementById('saveReqFolder');
+  if (!targetEl || !colSelect) return;
+
+  const colId = colSelect.value;
+  const col = state.collections.find(c => c.id === colId);
+  const colName = col ? col.name : '—';
+  const folderId = folderSelect && folderSelect.value ? folderSelect.value : null;
+  const colDetail = state.loadedCollections[colId];
+  let folderName = 'Root';
+  if (folderId && colDetail) {
+    const folder = (colDetail.folders || []).find(f => f.id === folderId);
+    if (folder) folderName = folder.name;
+  }
+
+  targetEl.textContent = '';
+  targetEl.appendChild(document.createTextNode('Saving to: '));
+  const strong = document.createElement('strong');
+  strong.textContent = colName;
+  targetEl.appendChild(strong);
+  targetEl.appendChild(document.createTextNode(' › ' + folderName));
+}
+
+async function populateSaveReqFolders() {
+  const colSelect = document.getElementById('saveReqCollection');
+  const folderSelect = document.getElementById('saveReqFolder');
+  const folderGroup = document.getElementById('saveReqFolderGroup');
+  if (!colSelect || !folderSelect) return;
+
+  const colId = colSelect.value;
+  // Ensure the chosen collection's full detail is loaded.
+  if (colId && !state.loadedCollections[colId]) {
+    await loadCollectionDetails(colId);
+  }
+  const colDetail = state.loadedCollections[colId];
+
+  folderSelect.innerHTML = '';
+  const rootOpt = document.createElement('option');
+  rootOpt.value = '';
+  rootOpt.textContent = 'Root (No folder)';
+  folderSelect.appendChild(rootOpt);
+
+  let preferredFolderId = '';
+  if (colDetail && Array.isArray(colDetail.folders)) {
+    colDetail.folders.forEach(f => {
+      const opt = document.createElement('option');
+      opt.value = f.id;
+      opt.textContent = f.name;
+      folderSelect.appendChild(opt);
+    });
+    // Default to the active request's folder if it lives in this collection.
+    const tab = getActiveTab();
+    if (tab && tab.type === 'saved' && tab.collectionId === colId && tab.request && tab.request.folderId) {
+      preferredFolderId = tab.request.folderId;
+    }
+  }
+  folderSelect.value = preferredFolderId || '';
+  folderSelect.onchange = updateSaveReqTargetLabel;
+
+  const hasFolders = !!(colDetail && colDetail.folders && colDetail.folders.length);
+  if (folderGroup) folderGroup.style.display = hasFolders ? '' : 'none';
+}
+
+async function openSaveRequestDialog(mode) {
+  saveReqDialogMode = mode;
+  saveReqOriginTabId = state.activeTabId;
+
+  const tab = getActiveTab();
+  const header = document.getElementById('saveReqHeader');
+  if (header) header.textContent = mode === 'saveAs' ? 'Save Request As…' : 'Save Request';
+
+  // Default name: saved-tab name, else URL-derived, else "New Request".
+  let defaultName = '';
+  if (tab) {
+    if (tab.type === 'saved') {
+      defaultName = tab.name || '';
+    } else {
+      const url = (tab.request && tab.request.url) || '';
+      let derived = url ? url.replace(/^https?:\/\/[^/]+/i, '') : '';
+      if (!derived || derived === '/') derived = url;
+      defaultName = derived || 'New Request';
+    }
+  }
+  const nameInput = document.getElementById('saveReqName');
+  if (nameInput) {
+    nameInput.value = defaultName;
+    setTimeout(() => { nameInput.focus(); nameInput.select(); }, 30);
+  }
+
+  const colSelect = document.getElementById('saveReqCollection');
+  const folderGroup = document.getElementById('saveReqFolderGroup');
+  const emptyEl = document.getElementById('saveReqEmpty');
+  const targetEl = document.getElementById('saveReqTarget');
+  const confirmBtn = document.getElementById('btnConfirmSaveReq');
+
+  // No collections → guard.
+  if (!state.collections || state.collections.length === 0) {
+    if (colSelect) colSelect.innerHTML = '';
+    if (folderGroup) folderGroup.style.display = 'none';
+    if (emptyEl) emptyEl.style.display = 'block';
+    if (targetEl) targetEl.style.display = 'none';
+    if (confirmBtn) confirmBtn.disabled = true;
+    openDialog('modalSaveRequest');
+    return;
+  }
+
+  if (emptyEl) emptyEl.style.display = 'none';
+  if (targetEl) targetEl.style.display = '';
+  if (confirmBtn) confirmBtn.disabled = false;
+
+  // Populate collections; default to the active request's collection if saved.
+  if (colSelect) {
+    colSelect.innerHTML = '';
+    state.collections.forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c.id;
+      opt.textContent = c.name;
+      colSelect.appendChild(opt);
+    });
+    const savedColId = (tab && tab.type === 'saved' && tab.collectionId) ? tab.collectionId : null;
+    colSelect.value = state.collections.some(c => c.id === savedColId) ? savedColId : state.collections[0].id;
+    colSelect.onchange = async () => { await populateSaveReqFolders(); updateSaveReqTargetLabel(); };
+  }
+
+  await populateSaveReqFolders();
+  updateSaveReqTargetLabel();
+
+  if (confirmBtn) confirmBtn.onclick = confirmSaveRequest;
+
+  openDialog('modalSaveRequest');
+}
+
+async function confirmSaveRequest() {
+  const nameInput = document.getElementById('saveReqName');
+  const colSelect = document.getElementById('saveReqCollection');
+  const folderSelect = document.getElementById('saveReqFolder');
+  if (!nameInput || !colSelect) return;
+
+  const name = nameInput.value.trim();
+  if (!name) {
+    showToast('Please enter a request name', 'error');
+    nameInput.focus();
+    return;
+  }
+  const colId = colSelect.value;
+  if (!colId) {
+    showToast('Please choose a collection', 'error');
+    return;
+  }
+  const folderId = folderSelect && folderSelect.value ? folderSelect.value : null;
+
+  if (!state.loadedCollections[colId]) {
+    await loadCollectionDetails(colId);
+  }
+  const col = state.loadedCollections[colId];
+  if (!col) {
+    showToast('Could not load target collection', 'error');
+    return;
+  }
+
+  // New request from current editor state.
+  const newReq = buildRequestSnapshot();
+  newReq.id = (window.crypto && window.crypto.randomUUID) ? window.crypto.randomUUID() : Math.random().toString(36).substring(2);
+  newReq.name = name;
+  newReq.folderId = folderId;
+
+  if (!Array.isArray(col.requests)) col.requests = [];
+  col.requests.push(newReq);
+
+  try {
+    await window.teamapi.collections.save(col);
+    renderCollectionsTree();
+    const label = describeCollectionPath(col, folderId);
+    showToast('Saved to ' + label, 'success');
+    closeDialog('modalSaveRequest');
+
+    const newId = newReq.id;
+    if (saveReqDialogMode === 'saveAs') {
+      // Open the saved copy in its own tab; leave the original untouched.
+      loadRequestIntoEditor(colId, newId);
+    } else {
+      // 'save' from an unsaved tab: replace the origin tab with the saved one.
+      const originId = saveReqOriginTabId;
+      if (originId) await closeTab(originId);
+      loadRequestIntoEditor(colId, newId);
+    }
+  } catch (e) {
+    showToast('Save failed: ' + e.message, 'error');
+  }
+}
+
+// Reflect the active tab's save target on the Save button subtitle/tooltip.
+function refreshSaveButtonTarget() {
+  const btn = document.getElementById('btnSave');
+  const targetEl = btn ? btn.querySelector('.btn-save-target') : null;
+  if (!btn || !targetEl) return;
+  const tab = getActiveTab();
+  if (tab && tab.type === 'saved' && tab.collectionId && state.loadedCollections[tab.collectionId]) {
+    const col = state.loadedCollections[tab.collectionId];
+    const path = describeCollectionPath(col, tab.request && tab.request.folderId);
+    targetEl.textContent = '→ ' + path;
+    btn.title = 'Save to ' + path + ' (Ctrl/Cmd+S)';
+  } else {
+    targetEl.textContent = 'Save to…';
+    btn.title = 'Save to a collection (Ctrl/Cmd+S)';
+  }
+}
+
 // Autocomplete Suggestions system
-const SCRIPT_SUGGESTIONS = [
-  { label: 'pm', value: 'pm', type: 'object' },
-  { label: 'pm.environment', value: 'pm.environment', type: 'object' },
-  { label: 'pm.environment.set(key, val)', value: 'pm.environment.set("key", "value");', type: 'method' },
-  { label: 'pm.environment.get(key)', value: 'pm.environment.get("key");', type: 'method' },
-  { label: 'pm.response', value: 'pm.response', type: 'object' },
-  { label: 'pm.response.code', value: 'pm.response.code', type: 'property' },
-  { label: 'pm.response.body', value: 'pm.response.body', type: 'property' },
-  { label: 'pm.response.json()', value: 'pm.response.json()', type: 'method' },
-  { label: 'console.log(msg)', value: 'console.log("message");', type: 'method' }
+// Coverage comes from compact JS built-in lists rather than a hand-curated set.
+// Two pools: GLOBALS (keywords + identifiers at statement level) and MEMBERS
+// (anything after a `.`). Members are the union of String/Array/Object/Number/
+// Math/JSON/console/Date/Promise prototype members plus the pm runtime API.
+const JS_KEYWORDS = ['const', 'let', 'var', 'function', 'return', 'if', 'else', 'for', 'while', 'do', 'switch', 'case', 'break', 'continue', 'new', 'delete', 'typeof', 'instanceof', 'void', 'this', 'try', 'catch', 'finally', 'throw', 'class', 'extends', 'super', 'import', 'export', 'default', 'async', 'await', 'yield', 'in', 'of'];
+
+const JS_GLOBALS = ['JSON', 'Math', 'Object', 'Array', 'String', 'Number', 'Boolean', 'Date', 'RegExp', 'Map', 'Set', 'WeakMap', 'WeakSet', 'Symbol', 'Promise', 'Error', 'parseInt', 'parseFloat', 'isNaN', 'isFinite', 'encodeURIComponent', 'decodeURIComponent', 'encodeURI', 'decodeURI', 'NaN', 'Infinity', 'undefined', 'globalThis', 'console', 'tp'];
+
+// Callable members are inserted with a trailing `(`.
+const JS_MEMBER_METHODS = ['charAt', 'charCodeAt', 'codePointAt', 'concat', 'includes', 'endsWith', 'indexOf', 'lastIndexOf', 'localeCompare', 'match', 'matchAll', 'normalize', 'padEnd', 'padStart', 'repeat', 'replace', 'replaceAll', 'search', 'slice', 'split', 'startsWith', 'substring', 'substr', 'toLowerCase', 'toUpperCase', 'trim', 'trimStart', 'trimEnd', 'valueOf', 'at', 'toString', 'copyWithin', 'entries', 'every', 'fill', 'filter', 'find', 'findIndex', 'findLast', 'findLastIndex', 'flat', 'flatMap', 'forEach', 'join', 'keys', 'map', 'pop', 'push', 'reduce', 'reduceRight', 'reverse', 'shift', 'some', 'sort', 'splice', 'unshift', 'values', 'assign', 'create', 'defineProperty', 'defineProperties', 'freeze', 'fromEntries', 'getOwnPropertyNames', 'getPrototypeOf', 'hasOwn', 'is', 'isFrozen', 'seal', 'toFixed', 'toPrecision', 'toExponential', 'abs', 'ceil', 'floor', 'round', 'trunc', 'sign', 'sqrt', 'cbrt', 'pow', 'exp', 'log', 'log2', 'log10', 'max', 'min', 'random', 'sin', 'cos', 'tan', 'atan', 'atan2', 'parse', 'stringify', 'error', 'warn', 'info', 'debug', 'table', 'group', 'groupEnd', 'time', 'timeEnd', 'dir', 'trace', 'getTime', 'getFullYear', 'getMonth', 'getDate', 'getHours', 'getMinutes', 'getSeconds', 'toISOString', 'toDateString', 'setTime', 'setFullYear', 'then', 'catch', 'finally', 'all', 'race', 'allSettled', 'any', 'resolve', 'reject', 'get', 'set', 'test', 'expect', 'json', 'equal', 'notEqual', 'include', 'hasOwnProperty', 'isPrototypeOf', 'toLocaleString'];
+
+// Non-callable members (properties, chain objects) are inserted as-is.
+const JS_MEMBER_PROPERTIES = ['length', 'name', 'prototype', 'constructor', 'size', 'environment', 'response', 'request', 'variables', 'globals', 'collection', 'code', 'status', 'body', 'headers', 'time', 'responseTime', 'to', 'be', 'a', 'an'];
+
+// Team API script snippets — type `tp` to surface these templates.
+const TP_SNIPPETS = [
+  { label: 'tp — set env', value: 'tp.environment.set("key", "value");', type: 'snippet' },
+  { label: 'tpset', value: 'tp.environment.set("key", "value");', type: 'snippet' },
+  { label: 'tpget', value: 'tp.environment.get("key");', type: 'snippet' },
+  { label: 'tptest', value: 'tp.test("status is 200", function () {\n  tp.expect(tp.response.code).to.equal(200);\n});', type: 'snippet' },
+  { label: 'tpexpect', value: 'tp.expect(value).to.equal(expected);', type: 'snippet' },
+  { label: 'tpjson', value: 'const body = tp.response.json();', type: 'snippet' },
+  { label: 'tplog', value: 'console.log("message");', type: 'snippet' }
 ];
+
+const SCRIPT_GLOBAL_SUGGESTIONS = [
+  ...JS_KEYWORDS.map(k => ({ label: k, value: k + ' ', type: 'keyword' })),
+  ...JS_GLOBALS.map(g => ({ label: g, value: g, type: 'global' })),
+  ...TP_SNIPPETS
+];
+
+const SCRIPT_MEMBER_SUGGESTIONS = (() => {
+  const seen = new Set();
+  const out = [];
+  const add = (name, type, value) => { if (!seen.has(name)) { seen.add(name); out.push({ label: name, value, type }); } };
+  JS_MEMBER_METHODS.forEach(m => add(m, 'method', m + '('));
+  JS_MEMBER_PROPERTIES.forEach(p => add(p, 'property', p));
+  return out;
+})();
+
+const SCRIPT_SUGGESTION_CAP = 60;
+
+// Identify the identifier token ending at `pos`. A `.` immediately before the token
+// means we're completing a member (e.g. `obj.foo|`).
+function getScriptToken(text, pos) {
+  let wordStart = pos;
+  while (wordStart > 0 && /[A-Za-z0-9_$]/.test(text[wordStart - 1])) wordStart--;
+  const currentWord = text.substring(wordStart, pos);
+  const isMember = wordStart > 0 && text[wordStart - 1] === '.';
+  return { wordStart, currentWord, isMember };
+}
 
 let activeAutocompleteTextarea = null;
 let currentAutocompleteMatches = [];
@@ -2563,21 +3213,15 @@ function bindAutocomplete(textarea) {
 function handleAutocompleteInput(textarea) {
   const selStart = textarea.selectionStart;
   const text = textarea.value;
-  
-  // Get current word prefix before cursor
-  const lastSpace = text.lastIndexOf(' ', selStart - 1);
-  const lastNewline = text.lastIndexOf('\n', selStart - 1);
-  const lastParen = text.lastIndexOf('(', selStart - 1);
-  const lastSemi = text.lastIndexOf(';', selStart - 1);
-  const wordStart = Math.max(lastSpace, lastNewline, lastParen, lastSemi) + 1;
-  
-  const currentWord = text.substring(wordStart, selStart).trim();
-  
-  if (currentWord.length >= 1) {
-    const matches = SCRIPT_SUGGESTIONS.filter(s => 
-      s.label.toLowerCase().startsWith(currentWord.toLowerCase()) && 
-      s.label !== currentWord
-    );
+
+  const { wordStart, currentWord, isMember } = getScriptToken(text, selStart);
+  const needle = currentWord.toLowerCase();
+
+  if (currentWord.length >= 1 || isMember) {
+    const pool = isMember ? SCRIPT_MEMBER_SUGGESTIONS : SCRIPT_GLOBAL_SUGGESTIONS;
+    const matches = pool
+      .filter(s => s.label.toLowerCase().startsWith(needle) && s.label.toLowerCase() !== needle)
+      .slice(0, SCRIPT_SUGGESTION_CAP);
 
     if (matches.length > 0) {
       activeAutocompleteTextarea = textarea;
@@ -2587,7 +3231,7 @@ function handleAutocompleteInput(textarea) {
       return;
     }
   }
-  
+
   hideAutocompletePopup();
 }
 
@@ -2673,16 +3317,9 @@ function handleAutocompleteKeydown(textarea, e) {
     e.preventDefault();
     const match = currentAutocompleteMatches[activeAutocompleteIndex];
     if (match) {
-      // Find the word bounds
       const selStart = textarea.selectionStart;
       const text = textarea.value;
-      const lastSpace = text.lastIndexOf(' ', selStart - 1);
-      const lastNewline = text.lastIndexOf('\n', selStart - 1);
-      const lastParen = text.lastIndexOf('(', selStart - 1);
-      const lastSemi = text.lastIndexOf(';', selStart - 1);
-      const wordStart = Math.max(lastSpace, lastNewline, lastParen, lastSemi) + 1;
-      const currentWord = text.substring(wordStart, selStart).trim();
-      
+      const { wordStart, currentWord } = getScriptToken(text, selStart);
       applyAutocompleteMatch(textarea, match.value, currentWord, wordStart);
     }
   } else if (e.key === 'Escape') {
@@ -2742,6 +3379,34 @@ function getCursorPixelCoords(textarea) {
 // -------------------------------------------------------------
 
 // 1. Variable Previews
+// Estimate the pixel position of `position` inside an <input>/<textarea> by mirroring
+// its styles into a hidden div and measuring the caret span. Used to anchor the
+// preview tooltip to the actual {{variable}} text instead of the field corner.
+function getCaretCoordinates(element, position) {
+  const isInput = element.tagName === 'INPUT';
+  const props = ['direction', 'boxSizing', 'width', 'height', 'overflowX', 'overflowY',
+    'borderTopWidth', 'borderRightWidth', 'borderBottomWidth', 'borderLeftWidth',
+    'borderStyle', 'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft',
+    'fontStyle', 'fontVariant', 'fontWeight', 'fontStretch', 'fontSize', 'fontSizeAdjust',
+    'lineHeight', 'fontFamily', 'textAlign', 'textTransform', 'textIndent', 'textDecoration',
+    'letterSpacing', 'wordSpacing', 'tabSize'];
+  const style = window.getComputedStyle(element);
+  const div = document.createElement('div');
+  props.forEach(p => { div.style[p] = style[p]; });
+  div.style.position = 'absolute';
+  div.style.visibility = 'hidden';
+  div.style.whiteSpace = isInput ? 'pre' : 'pre-wrap';
+  if (!isInput) div.style.wordWrap = 'break-word';
+  div.textContent = element.value.substring(0, position);
+  const span = document.createElement('span');
+  span.textContent = element.value.substring(position) || '.';
+  div.appendChild(span);
+  document.body.appendChild(div);
+  const coords = { top: span.offsetTop, left: span.offsetLeft };
+  document.body.removeChild(div);
+  return coords;
+}
+
 function updateVariablePreview(inputEl) {
   const tooltip = document.getElementById('variablePreviewTooltip');
   if (!tooltip) return;
@@ -2759,27 +3424,52 @@ function updateVariablePreview(inputEl) {
     return;
   }
 
-  // Resolve matching variables
+  // Resolve matching variables (dynamic generators first, then env vars)
   const envVars = state.activeEnv ? state.activeEnv.variables : {};
   const envSecrets = (state.activeEnv && state.activeEnv.secrets) || [];
   let previewHtml = '';
   matches.forEach(m => {
     const key = m[1].trim();
-    const isSecret = envSecrets.includes(key);
-    let resolved = envVars.hasOwnProperty(key) ? envVars[key] : 'undefined';
-    if (isSecret && resolved !== 'undefined') {
-      resolved = '••••••••';
-    }
-    previewHtml += `<div><span class="var-preview-name">{{${key}}}</span><span class="var-preview-arrow">➔</span><span class="var-preview-value">${resolved}</span></div>`;
+    let resolved = resolveDynamicVar(key);
+    if (resolved === null) resolved = envVars.hasOwnProperty(key) ? envVars[key] : 'undefined';
+    const isSecret = envSecrets.includes(key) && resolved !== 'undefined';
+    if (isSecret) resolved = '••••••••';
+    let display = String(resolved);
+    if (display.length > 200) display = display.slice(0, 200) + '…';
+    const safe = display.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    previewHtml += `<div><span class="var-preview-name">{{${key}}}</span><span class="var-preview-arrow">➔</span><span class="var-preview-value">${safe}</span></div>`;
   });
 
   tooltip.innerHTML = previewHtml;
 
-  // Position tooltip below input
+  // Anchor the tooltip to the first variable — stable, doesn't chase the caret/mouse.
+  const anchorPos = matches[0].index;
+  const coords = getCaretCoordinates(inputEl, anchorPos);
   const rect = inputEl.getBoundingClientRect();
-  tooltip.style.left = `${rect.left + window.scrollX}px`;
-  tooltip.style.top = `${rect.bottom + window.scrollY + 6}px`;
-  tooltip.style.display = 'block';
+  const cs = window.getComputedStyle(inputEl);
+  const bTop = parseFloat(cs.borderTopWidth) || 0;
+  const bLeft = parseFloat(cs.borderLeftWidth) || 0;
+  const pTop = parseFloat(cs.paddingTop) || 0;
+  const pLeft = parseFloat(cs.paddingLeft) || 0;
+  const lineH = parseFloat(cs.lineHeight) || 20;
+
+  tooltip.style.display = 'block'; // needed to measure size
+  let left = rect.left + bLeft + pLeft + coords.left - (inputEl.scrollLeft || 0) + (window.scrollX || 0);
+  let top = rect.top + bTop + pTop + coords.top + lineH + 4 + (window.scrollY || 0);
+
+  // Clamp horizontally within the viewport
+  const ttW = tooltip.offsetWidth;
+  if (left + ttW > window.innerWidth - 8) left = window.innerWidth - ttW - 8;
+  if (left < 8) left = 8;
+
+  // If not enough room below, show above the line
+  const ttH = tooltip.offsetHeight;
+  if (top + ttH > (window.innerHeight - 8) && (rect.top + bTop + pTop + coords.top) > ttH + 8) {
+    top = rect.top + bTop + pTop + coords.top - ttH - 6 + (window.scrollY || 0);
+  }
+
+  tooltip.style.left = `${left}px`;
+  tooltip.style.top = `${top}px`;
 }
 
 function handleVariablePreviewFocus(e) {
@@ -3142,6 +3832,7 @@ async function importCollection(jsonData) {
           const newFolderId = generateUuid();
           collectionObj.folders.push({
             id: newFolderId,
+            parentId: folderId,
             name: item.name || 'Folder'
           });
           parsePostmanItems(item.item, newFolderId);

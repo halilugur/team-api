@@ -196,6 +196,47 @@ dialog *,
   min-height: 0;
 }
 
+/* Panel resizers (drag handles) */
+.resizer {
+  flex-shrink: 0;
+  background: transparent;
+  position: relative;
+  z-index: 15;
+  transition: background 0.15s ease;
+}
+
+.resizer:hover,
+.resizer.active {
+  background: var(--accent-blue);
+}
+
+.resizer-vertical {
+  width: 5px;
+  cursor: col-resize;
+}
+
+.resizer-horizontal {
+  height: 5px;
+  cursor: row-resize;
+}
+
+/* While dragging: lock cursor + disable panel transitions for snappy resize */
+body.is-resizing,
+body.is-resizing * {
+  cursor: col-resize !important;
+  user-select: none !important;
+}
+
+body.is-resizing.is-resizing-row,
+body.is-resizing.is-resizing-row * {
+  cursor: row-resize !important;
+}
+
+body.is-resizing .sidebar,
+body.is-resizing .response-panel {
+  transition: none !important;
+}
+
 /* Left Sidebar (Glass pane look) */
 .sidebar {
   width: 260px;
@@ -291,7 +332,7 @@ dialog *,
 
 /* List / Tree Nodes */
 .tree-node {
-  margin-left: 8px;
+  margin-left: 10px;
 }
 
 .collection-item,
@@ -630,6 +671,15 @@ dialog *,
   justify-content: space-between;
   align-items: center;
   margin-bottom: 14px;
+}
+
+.body-options-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
 }
 
 .body-type-select {
@@ -1004,6 +1054,27 @@ dialog *,
   color: var(--text-muted);
 }
 
+.status-manage-btn {
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--text-muted);
+  transition: all 0.2s ease;
+  outline: none;
+}
+
+.status-manage-btn:hover {
+  background-color: var(--bg-hover);
+  color: var(--text-primary);
+  border-color: var(--text-dim);
+}
+
 .status-dropdown {
   background-color: var(--bg-secondary);
   border: 1px solid var(--border);
@@ -1304,6 +1375,13 @@ dialog::backdrop {
   width: 456px;
 }
 
+.recent-workspace-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
 .welcome-recent-title {
   font-size: 10px;
   font-weight: 700;
@@ -1436,19 +1514,163 @@ dialog::backdrop {
   border-color: var(--text-dim);
 }
 
+/* Save / Save As buttons (URL bar) */
+.btn-save {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 700;
+  border-radius: 6px;
+  padding: 4px 12px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: center;
+  line-height: 1.2;
+  min-width: 64px;
+  transition: all 0.2s ease;
+}
+
+.btn-save:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border-color: var(--text-dim);
+}
+
+.btn-save-label {
+  font-size: 12px;
+}
+
+.btn-save-target {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 130px;
+}
+
+#btnSaveAs {
+  justify-content: center;
+  min-width: auto;
+}
+
+/* Save split-button wrapper */
+.save-split {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+}
+
+.save-split .btn-save {
+  border-radius: 6px 0 0 6px;
+}
+
+.btn-save-caret {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-left: none;
+  color: var(--text-muted);
+  border-radius: 0 6px 6px 0;
+  padding: 0 8px;
+  cursor: pointer;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  transition: all 0.2s ease;
+}
+
+.btn-save-caret:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border-color: var(--text-dim);
+}
+
+/* Save dropdown menu */
+.save-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 4px;
+  min-width: 168px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+  padding: 4px;
+  z-index: 1000;
+  display: none;
+}
+
+.save-menu.open {
+  display: block;
+}
+
+.save-menu-item {
+  padding: 8px 10px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-primary);
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.save-menu-item:hover {
+  background: var(--bg-hover);
+}
+
+/* Save Request dialog */
+.save-req-target {
+  font-size: 12px;
+  color: var(--text-muted);
+  padding: 6px 0 2px;
+}
+
+.save-req-target strong {
+  color: var(--text-primary);
+}
+
+.save-req-empty {
+  font-size: 12px;
+  color: var(--text-dim);
+  padding: 6px 0;
+  display: flex;
+  align-items: center;
+}
+
 /* Variable highlights in preview popover */
+.variable-preview-tooltip {
+  max-width: 380px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.variable-preview-tooltip > div {
+  display: flex;
+  align-items: baseline;
+  gap: 2px;
+}
+
 .variable-preview-tooltip .var-preview-name {
   color: var(--accent-teal);
   font-weight: 700;
+  flex-shrink: 0;
 }
 
 .variable-preview-tooltip .var-preview-arrow {
   color: var(--text-muted);
   margin: 0 4px;
+  flex-shrink: 0;
 }
 
 .variable-preview-tooltip .var-preview-value {
   color: var(--accent-green);
+  word-break: break-all;
+  min-width: 0;
 }
 
 /* Response search highlight */
@@ -1689,10 +1911,10 @@ mark.search-match.current {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 14px;
-  height: 14px;
+  width: 22px;
+  height: 22px;
   border-radius: 50%;
-  font-size: 9px;
+  font-size: 15px;
   line-height: 1;
   color: var(--text-dim);
   cursor: pointer;
@@ -1701,7 +1923,7 @@ mark.search-match.current {
 }
 
 .request-tab-close:hover {
-  background-color: rgba(255, 255, 255, 0.1);
+  background-color: rgba(255, 255, 255, 0.16);
   color: var(--text-primary);
 }
 

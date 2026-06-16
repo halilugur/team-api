@@ -183,11 +183,67 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
 
-// Helper: variable interpolator
+// Helper: dynamic variable generators (e.g. {{random.uuid}}, {{timestamp}})
+function tpRandomInt(min, max) { min = Math.ceil(min); max = Math.floor(max); return Math.floor(Math.random() * (max - min + 1)) + min; }
+function tpRandomChars(len, charset) { let s = ''; for (let i = 0; i < len; i++) s += charset[tpRandomInt(0, charset.length - 1)]; return s; }
+function tpGenerateUuid() {
+  try { if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID(); } catch (e) {}
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => { const r = Math.random() * 16 | 0; return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16); });
+}
+
+// Returns a generated value for a known dynamic key, or null if it isn't one.
+// Supports parametric syntax like {{random.int(1,100)}} and random.string(16).
+function resolveDynamicVar(rawKey) {
+  const key = rawKey.trim();
+  const m = key.match(/^([a-zA-Z0-9.$]+)\((.*)\)$/);
+  const base = m ? m[1].toLowerCase() : key.toLowerCase();
+  const args = m ? m[2].split(',').map(s => s.trim()).filter(s => s.length) : [];
+  const num = (i, def) => { const n = parseInt(args[i], 10); return isNaN(n) ? def : n; };
+  const lenArg = (i, def) => { const n = parseInt(args[i], 10); if (isNaN(n)) return def; return Math.max(0, Math.min(n, 1024)); };
+
+  switch (base) {
+    case 'random.uuid': case '$guid': case '$randomuuid': case 'uuid':
+      return tpGenerateUuid();
+    case 'random.int': case '$randomint':
+      return String(tpRandomInt(num(0, 0), num(1, 1000)));
+    case 'random.float': case '$randomfloat':
+      return String(Math.random() * (num(1, 1) - num(0, 0)) + num(0, 0));
+    case 'random.string': case 'random.alpha': case '$randomalpha':
+      return tpRandomChars(lenArg(0, 8), 'abcdefghijklmnopqrstuvwxyz');
+    case 'random.alphanum': case '$randomalphanumeric':
+      return tpRandomChars(lenArg(0, 8), 'abcdefghijklmnopqrstuvwxyz0123456789');
+    case 'random.hex': case '$randomhex':
+      return tpRandomChars(lenArg(0, 8), '0123456789abcdef');
+    case 'random.number':
+      return tpRandomChars(lenArg(0, 8), '0123456789');
+    case 'random.boolean': case '$randomboolean':
+      return Math.random() < 0.5 ? 'true' : 'false';
+    case 'random.color': case '$randomcolor':
+      return '#' + tpRandomChars(6, '0123456789abcdef');
+    case 'random.email':
+      return tpRandomChars(8, 'abcdefghijklmnopqrstuvwxyz') + '@example.com';
+    case 'timestamp': case '$timestamp':
+      return String(Date.now());
+    case 'timestamp.seconds':
+      return String(Math.floor(Date.now() / 1000));
+    case 'datetime': case 'datetime.iso': case '$datetime':
+      return new Date().toISOString();
+    case 'date':
+      return new Date().toISOString().slice(0, 10);
+    case 'time':
+      return new Date().toISOString().slice(11, 19);
+    default:
+      return null;
+  }
+}
+
+// Helper: variable interpolator (resolves {{random.*}}, {{timestamp}}, then env vars)
 function interpolate(text, vars) {
   if (typeof text !== 'string') return text;
   return text.replace(/\{\{([^}]+)\}\}/g, (match, key) => {
     const trimmedKey = key.trim();
+    const dyn = resolveDynamicVar(trimmedKey);
+    if (dyn !== null) return dyn;
     return vars.hasOwnProperty(trimmedKey) ? vars[trimmedKey] : match;
   });
 }
@@ -499,6 +555,7 @@ ipcMain.handle('request:execute', async (event, { request: requestObj, envVars }
     try {
       const sandbox = vm.createContext({
         pm,
+        tp: pm,
         console: {
           log: (...args) => {
             scriptLog.push(args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' '));
@@ -702,6 +759,7 @@ ipcMain.handle('request:execute', async (event, { request: requestObj, envVars }
     try {
       const sandbox = vm.createContext({
         pm,
+        tp: pm,
         console: {
           log: (...args) => {
             scriptLog.push(args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' '));

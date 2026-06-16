@@ -1,7 +1,7 @@
 {
   "name": "team-api",
   "productName": "TeamAPI",
-  "version": "1.0.1",
+  "version": "1.1.1",
   "description": "File-system based HTTP API testing client.",
   "author": "TeamAPI",
   "license": "Apache-2.0",

@@ -61,8 +61,8 @@
       </button>
     </div>
     <div class="welcome-recent" id="welcomeRecent" style="display: none;">
-      <div class="welcome-recent-title">Recent Workspace</div>
-      <div class="recent-workspace-item" id="recentWorkspaceItem"></div>
+      <div class="welcome-recent-title">Recent Workspaces</div>
+      <div class="recent-workspace-list" id="recentWorkspaceList"></div>
     </div>
   </div>
 
@@ -115,6 +115,9 @@
       </div>
     </aside>
 
+    <!-- Sidebar width resizer -->
+    <div class="resizer resizer-vertical" id="sidebarResizer" title="Drag to resize sidebar"></div>
+
     <div class="main-workspace-area">
       <!-- Center Panel (Request Editor) -->
       <main class="main-editor">
@@ -153,6 +156,16 @@
           </div>
           <button class="btn-send" id="btnSend">SEND</button>
           <button class="btn-code" id="btnCodeSnippet" title="Generate Code Snippet">&lt;/&gt;</button>
+          <div class="save-split" id="saveSplit">
+            <button class="btn-save" id="btnSave" title="Save to a collection (Ctrl/Cmd+S)">
+              <span class="btn-save-label">Save</span>
+              <span class="btn-save-target">Save to…</span>
+            </button>
+            <button class="btn-save-caret" id="btnSaveCaret" title="More save options">&#9662;</button>
+            <div class="save-menu" id="saveMenu">
+              <div class="save-menu-item" id="saveMenuItemSaveAs">Save As…</div>
+            </div>
+          </div>
         </div>
 
         <!-- Editor Tabs Bar -->
@@ -250,7 +263,7 @@
               <div class="body-type-btn" data-value="form-data">form-data</div>
               <div class="body-type-btn" data-value="graphql">graphql</div>
             </div>
-            <select class="body-sub-type-select" id="bodySubTypeSelect" style="display: none;">
+            <select class="body-subtype-select" id="bodySubTypeSelect" style="display: none;">
               <option value="json">JSON</option>
               <option value="xml">XML</option>
               <option value="html">HTML</option>
@@ -303,8 +316,8 @@
             <div class="script-ref-box">
               <div class="script-ref-title">Pre-Request Sandbox Script (vm-context)</div>
               <div class="script-ref-code">
-                pm.environment.set("baseUrl", "https://httpbin.org");<br>
-                pm.environment.get("baseUrl");
+                tp.environment.set("baseUrl", "https://httpbin.org");<br>
+                tp.environment.get("baseUrl");
               </div>
             </div>
             <textarea class="editor-textarea mono" id="preScript"
@@ -316,9 +329,9 @@
             <div class="script-ref-box">
               <div class="script-ref-title">Post-Response Sandbox Script (vm-context)</div>
               <div class="script-ref-code">
-                const json = pm.response.json();<br>
-                pm.environment.set("authToken", json.token);<br>
-                console.log("Response Code:", pm.response.code);
+                const json = tp.response.json();<br>
+                tp.environment.set("authToken", json.token);<br>
+                console.log("Response Code:", tp.response.code);
               </div>
             </div>
             <textarea class="editor-textarea mono" id="postScript"
@@ -328,6 +341,9 @@
       </div>
 
     </main>
+
+    <!-- Response panel height resizer -->
+    <div class="resizer resizer-horizontal" id="responseResizer" title="Drag to resize response panel"></div>
 
     <!-- Right Panel (Response Panel) -->
     <aside class="response-panel" id="responsePanel">
@@ -412,9 +428,15 @@
       <div class="status-dropdown-wrapper">
         <select class="status-dropdown" id="envSelector">
           <option value="none">No Environment</option>
-          <option value="edit-envs">-- Manage Environments --</option>
         </select>
       </div>
+      <button class="status-manage-btn" id="btnManageEnvs" title="Manage Environments" aria-label="Manage Environments">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+          stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"></circle>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+        </svg>
+      </button>
     </div>
     <div class="status-right">
     </div>
@@ -482,25 +504,52 @@
     </div>
   </dialog>
 
+  <!-- Save Request Modal -->
+  <dialog id="modalSaveRequest" style="max-width: 480px; width: 90%;">
+    <div class="dialog-header" id="saveReqHeader">Save Request</div>
+    <div class="dialog-body">
+      <div class="form-group">
+        <label for="saveReqName">Request Name</label>
+        <input type="text" class="form-control" id="saveReqName">
+      </div>
+      <div class="form-group">
+        <label for="saveReqCollection">Collection</label>
+        <select class="form-control" id="saveReqCollection"></select>
+      </div>
+      <div class="form-group" id="saveReqFolderGroup">
+        <label for="saveReqFolder">Folder</label>
+        <select class="form-control" id="saveReqFolder"></select>
+      </div>
+      <div class="save-req-target" id="saveReqTarget">Saving to: …</div>
+      <div class="save-req-empty" id="saveReqEmpty" style="display: none;">
+        No collections yet. <button class="btn-primary" id="btnSaveReqNewCollection" style="margin-left: 8px; padding: 4px 10px;">New Collection</button>
+      </div>
+    </div>
+    <div class="dialog-footer">
+      <button class="btn-secondary" id="btnCancelSaveReq">Cancel</button>
+      <button class="btn-primary" id="btnConfirmSaveReq">Save</button>
+    </div>
+  </dialog>
+
   <!-- Environment Manager Modal -->
   <dialog id="modalEnvManager" style="max-width: 650px;">
     <div class="dialog-header">Manage Environments</div>
-    <div class="dialog-body" style="flex-direction: row; gap: 20px; height: 350px;">
+    <div class="dialog-body" style="flex-direction: row; gap: 20px; height: 350px; min-width: 0; overflow: hidden;">
       <!-- Environment List -->
       <div
-        style="width: 180px; border-right: 1px solid var(--border); padding-right: 10px; display: flex; flex-direction: column; gap: 8px;">
+        style="width: 180px; flex-shrink: 0; border-right: 1px solid var(--border); padding-right: 10px; display: flex; flex-direction: column; gap: 8px;">
         <button class="sidebar-btn" id="btnEnvCreateNew">+ New Env</button>
         <div id="envManagerList" style="flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 4px;">
           <!-- List of envs -->
         </div>
       </div>
       <!-- Environment Variables -->
-      <div id="envVariablesPane" style="flex: 1; display: none; flex-direction: column;">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+      <div id="envVariablesPane" style="flex: 1; min-width: 0; display: none; flex-direction: column;">
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 10px;">
           <input type="text" class="form-control" id="envNameInput"
-            style="font-weight: 600; padding: 4px 8px; width: 200px;">
+            style="font-weight: 600; padding: 4px 8px; flex: 1 1 140px; min-width: 0;">
           <button class="sidebar-btn" id="btnEnvDelete"
-            style="background: rgba(239, 68, 68, 0.1); color: var(--accent-red); border-color: rgba(239,68,68,0.2)">Delete
+            style="flex-shrink: 0; white-space: nowrap; background: rgba(239, 68, 68, 0.1); color: var(--accent-red); border-color: rgba(239,68,68,0.2)">Delete
             Env</button>
         </div>
         <div style="flex: 1; overflow-y: auto;">
