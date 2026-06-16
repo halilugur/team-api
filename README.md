@@ -1,85 +1,164 @@
-# TeamAPI
+<p align="center">
+  <img src="assets/icon.png" width="110" height="110" alt="Team API logo" />
+</p>
 
-![TeamAPI Screenshot](assets/home.png)
+<h1 align="center">Team API</h1>
 
-TeamAPI is a visually premium, file-system-based HTTP API testing client built on Electron. It runs entirely locally — collections and environments are stored as plain JSON files on disk, so any external tool (editors, sync services, scripts) can read and modify them freely. No cloud, no vendor lock-in, no proprietary database.
+<p align="center">
+  A file-system-based HTTP client with a built-in, context-aware AI assistant.<br/>
+  Local-first. Multi-provider. No cloud, no lock-in.
+</p>
+
+<p align="center">
+  <a href="https://github.com/halilugur/team-api"><img alt="platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-4f46e5?style=flat-square"></a>
+  <a href="./LICENSE"><img alt="license" src="https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square"></a>
+  <img alt="electron" src="https://img.shields.io/badge/Electron-42-47848F?style=flat-square&logo=electron&logoColor=white">
+  <img alt="node" src="https://img.shields.io/badge/Node.js-%E2%89%A518-339933?style=flat-square&logo=node.js&logoColor=white">
+</p>
+
+<br/>
+
+<p align="center">
+  <img src="assets/home.png" alt="Team API home screen" width="100%" />
+</p>
+
+<p align="center"><em>Home — recent workspaces, create or open a project directory.</em></p>
+
+<br/>
+
+<p align="center">
+  <img src="assets/work-area.png" alt="Team API workspace with the AI assistant open" width="100%" />
+</p>
+
+<p align="center"><em>Workspace — collections &amp; history on the left, the request editor in the center, the AI assistant on the right.</em></p>
 
 ---
 
-## Key Features
+## Overview
 
-*   **File-System Collections**: Request collections are stored as human-readable `.json` files in a workspace directory. Open, edit, or copy them with any tool you like.
-*   **Multi-Tab Editor**: Open multiple requests simultaneously in modern tabs at the top of the request pane.
-*   **Browser HTML Response Preview**: Render and preview HTML response bodies inside an isolated sandbox iframe directly in the response panel.
-*   **Split Sidebar Layout**: Collections and History lists are separated, keeping the History list pinned at the bottom of the sidebar with its own vertical scrollbar.
-*   **Postman & OpenAPI Importer**: Import your existing collections directly from Postman or OpenAPI specs.
-*   **Go to Home / Switcher**: A premium dark landing page displaying your recently opened project. Return home anytime using the Home button, native menu bar, or shortcut (`Cmd/Ctrl + Shift + H`).
-*   **Multiple Auth Types**: Supports No Auth, Bearer Token, Basic Auth, and API Key header authentication — configurable per request.
-*   **Pre & Post Scripts**: Execute sandboxed JavaScript before a request (to set headers or timestamps) and after (to extract values from the response). Uses a `pm` API modelled after Postman's scripting interface.
-*   **Environment Variables & Secrets**: Create and switch between named environments with key-value variable sets. Supports masking of secrets in tooltips. Use `{{variableName}}` syntax anywhere — URL, headers, body, auth fields.
-*   **Live Variable Preview**: While typing in any input, a tooltip previews the resolved value of `{{variable}}` references in real time.
-*   **URL ↔ Params Sync**: Query parameters in the URL bar and the Params tab stay in sync automatically as you type.
-*   **Persistent Error Toasts**: Errors are persistent (no auto-dismissing) and include a copy button so logs are easy to share.
-*   **Response Search**: Full-text search within the response body with highlighted matches and next/previous navigation.
-*   **Multi-Language Snippet Generator**: Generate ready-to-use HTTP request code for cURL, Fetch, Axios, Python Requests, Go, and Java `HttpClient`.
-*   **Folders in Collections**: Organise requests inside named folders within a collection.
-*   **Context Menus**: Right-click collections, folders, and requests to rename, duplicate, or delete them.
-*   **Cross-Platform Packaging**: Native builds for macOS (DMG), Linux (AppImage), and Windows (NSIS / ZIP / MSI).
+**Team API** is a desktop HTTP client for designing, testing, and documenting APIs. Everything is stored as plain JSON on disk — collections, environments, and chat history — so your workspace is fully portable, scriptable, and version-controllable. No accounts, no sync servers, no proprietary database.
 
----
+On top of the request engine sits an **AI assistant** that can see your active request and response, answer questions about them, and even **edit or create requests** for you.
 
-## Getting Started
+## Highlights
+
+**Request building**
+- Multi-tab editor — work on several requests at once.
+- All HTTP methods, query params, headers, and body types (JSON / text / XML / HTML / JS / form / URL-encoded / GraphQL).
+- Auth: None, Bearer, Basic, API Key — per request.
+- `{{variable}}` interpolation everywhere, with **live preview** of the resolved value as you type.
+- URL ↔ Params two-way sync.
+- Sandboxed **HTML response preview**, plus Pretty / Raw views and full-text response search.
+- One-click **code snippets**: cURL, Fetch, Axios, Python `requests`, Go, Java `HttpClient`.
+- Pre & post-request scripts with a Postman-style `pm` API (set variables, run assertions).
+
+**File-system workspaces**
+- Collections, folders, and environments are human-readable `.json` files.
+- Edit them in any editor, commit them to git, or generate them with scripts.
+- Import existing work from **Postman** and **OpenAPI** specs.
+
+**AI assistant** (see below)
+- Multi-provider, streaming, and able to modify the request you're working on.
+
+**Productivity**
+- Folders and right-click context menus (rename, duplicate, delete).
+- Persistent error toasts with copy-to-clipboard.
+- Cross-platform builds: macOS (DMG), Windows (NSIS / MSI / ZIP), Linux (AppImage).
+
+## AI Assistant
+
+The right-hand panel is an assistant that lives inside your workspace. It is **context-aware**: every message includes a snapshot of the active request (method, URL, headers, body, auth) and the last response, so it can reason about what you're doing — not answer generically.
+
+It streams responses token-by-token and renders markdown (headings, lists, code blocks, links). More importantly, it can **act** on the request through a simple action protocol — for example:
+
+> **You:** *"add an Authorization header with value Bearer secret and run it"*
+> **Assistant:** adds the header, then sends the request. A green "✓ Applied" chip confirms what changed.
+
+Supported actions: create a new request, set method / URL, add or remove headers & params, set the body, set auth, and execute the request.
+
+### Supported providers
+
+| Provider | Notes |
+| --- | --- |
+| **Ollama** (default) | Local, no API key required. |
+| **OpenAI** | GPT-4o / 4.1 / o-series. |
+| **OpenAI-Compatible** | Any `/chat/completions` endpoint — Groq, OpenRouter, DeepSeek, LM Studio, vLLM… (optional API key). |
+| **Claude (Anthropic)** | Sonnet 4.6 / Opus 4.8 / Haiku 4.5 / Fable 5. |
+| **Gemini (Google)** | Gemini 2.x / 1.5. |
+
+Provider API keys are stored in the app's **global user data** (never written into the shared workspace folder). Conversations are saved per-workspace under `.teamapi/chats/`.
+
+## Getting started
 
 ### Prerequisites
-*   [Node.js](https://nodejs.org) (v18 or higher recommended)
-*   npm (installed automatically with Node.js)
+- [Node.js](https://nodejs.org) **v18+**
+- npm (bundled with Node.js)
 
-### Installation
-Clone the repository and install the project dependencies:
+### Install & run
 ```bash
 git clone https://github.com/halilugur/team-api.git
 cd team-api
 npm install
-```
-
-### Run Locally (Development)
-```bash
 npm start
 ```
 
----
+On first launch, create or open a workspace directory — that folder becomes your project. Use the **⚙** button in the AI panel to configure a provider, then start chatting.
 
-## Workspace Structure
+## Building installers
 
-When you open or create a workspace, TeamAPI expects (and will create if missing) the following layout:
+Production builds are handled by `electron-builder`. For a quick unpacked build:
+
+```bash
+npm run pack
+```
+
+For a platform installer, either:
+
+```bash
+npm run dist      # uses electron-builder directly
+# or
+./release.sh      # detects your OS and picks sensible targets
+```
+
+`release.sh` auto-detects the operating system and, on macOS, skips the `.msi` target to avoid the WiX/Wine requirement.
+
+**Output formats**
+- **macOS** — DMG
+- **Linux** — AppImage
+- **Windows** — NSIS setup EXE, portable ZIP, MSI (MSI requires a Windows build environment)
+
+Build targets are configured in [`package.json`](./package.json) under `build`.
+
+## Workspace structure
 
 ```
 my-workspace/
-├── collections/        # One JSON file per collection
-├── environments/       # One JSON file per environment
+├── collections/        # one .json per collection (requests + folders)
+├── environments/       # one .json per environment (variables + secrets)
 └── .teamapi/
-    ├── meta.json       # Workspace name and version
-    └── history.json    # Recent request history (last 100)
+    ├── meta.json       # workspace metadata
+    ├── history.json    # recent request history
+    └── chats/          # saved AI conversations
 ```
 
-All files are plain JSON and can be edited externally at any time.
+Because it's just files, you can commit the whole workspace to git and collaborate naturally — or ignore `.teamapi/` if you'd rather keep history and chats local.
 
----
+## Tech stack
 
-## Building Releases
+- **Electron 42** — cross-platform desktop shell
+- **Vanilla JavaScript** — no UI framework, no build step for the renderer
+- **Axios** — HTTP engine (requests run in the main process, so there are no CORS limits)
+- **uuid** — identifiers
 
-TeamAPI uses `electron-builder` to compile native binaries.
+## Keyboard shortcuts
 
-```bash
-./release.sh
-```
+| Action | Shortcut |
+| --- | --- |
+| Toggle sidebar | `Ctrl/Cmd` + `\` |
+| Toggle AI assistant | `Ctrl/Cmd` + `]` |
+| Go to Home | `Ctrl/Cmd` + `Shift` + `H` |
+| Send chat message | `Enter` (newline: `Shift` + `Enter`) |
 
-### Output formats:
-*   **macOS**: DMG installer (`release/team-api-mac-1.0.0.dmg`)
-*   **Linux**: AppImage bundle (`release/team-api-linux-1.0.0.AppImage`)
-*   **Windows NSIS**: Setup EXE (`release/team-api-windows-1.0.0.exe`)
-*   **Windows Portable**: ZIP archive (`release/team-api-windows-1.0.0.zip`)
-*   **Windows MSI**: Installer package (`release/team-api-windows-1.0.0.msi` — *Windows build environment only*)
+## License
 
-> [!NOTE]
-> The `./release.sh` script automatically detects your operating system. When run on macOS, it skips the `.msi` build target to bypass the 32-bit Wine requirement of the WiX toolset, preventing compilation errors.
+[Apache-2.0](./LICENSE) © Halil Uğur
