@@ -1,6 +1,6 @@
 const { app, BrowserWindow, ipcMain, dialog, Menu, shell } = require('electron');
-app.name = 'TeamAPI';
-app.setName('TeamAPI');
+app.name = 'Team API';
+app.setName('Team API');
 const pathModule = require('path');
 const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
