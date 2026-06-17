@@ -385,85 +385,206 @@ function setupPanelResizers() {
   const savedChatWidth = parseInt(localStorage.getItem('chatWidth'), 10);
   if (savedChatWidth && chatPanel) chatPanel.style.width = savedChatWidth + 'px';
 
+  // Pointer-event drag with setPointerCapture: capturing the pointer on the
+  // handle guarantees we receive pointerup even if the cursor passes over an
+  // iframe (which would otherwise swallow mouseup and leave is-resizing stuck
+  // on <body>, making inputs feel unclickable).
+  function startDrag(handle, init) {
+    handle.addEventListener('pointerdown', (e) => {
+      const ctx = init(e);
+      if (!ctx) return;
+      e.preventDefault();
+      try { handle.setPointerCapture(e.pointerId); } catch (err) {}
+      handle.classList.add('active');
+      const start = e[ctx.axis];
+      const move = (ev) => ctx.onMove(ev[ctx.axis] - start);
+      const up = () => {
+        try { handle.releasePointerCapture(e.pointerId); } catch (err) {}
+        handle.classList.remove('active');
+        handle.removeEventListener('pointermove', move);
+        handle.removeEventListener('pointerup', up);
+        handle.removeEventListener('pointercancel', up);
+        ctx.onEnd();
+      };
+      handle.addEventListener('pointermove', move);
+      handle.addEventListener('pointerup', up);
+      handle.addEventListener('pointercancel', up);
+    });
+  }
+
   // Sidebar width resizer.
   if (sidebarResizer && sidebar) {
-    sidebarResizer.addEventListener('mousedown', (e) => {
-      if (sidebar.classList.contains('collapsed')) return;
-      e.preventDefault();
-      sidebarResizer.classList.add('active');
-      const startX = e.clientX;
+    startDrag(sidebarResizer, () => {
+      if (sidebar.classList.contains('collapsed')) return null;
       const startWidth = sidebar.offsetWidth;
       document.body.classList.add('is-resizing');
-      const onMove = (ev) => {
-        const w = Math.max(180, Math.min(560, startWidth + (ev.clientX - startX)));
-        sidebar.style.width = w + 'px';
+      return {
+        axis: 'clientX',
+        onMove: (dx) => { sidebar.style.width = Math.max(180, Math.min(560, startWidth + dx)) + 'px'; },
+        onEnd: () => {
+          document.body.classList.remove('is-resizing');
+          localStorage.setItem('sidebarWidth', parseInt(sidebar.style.width, 10) || 260);
+        }
       };
-      const onUp = () => {
-        sidebarResizer.classList.remove('active');
-        document.body.classList.remove('is-resizing');
-        localStorage.setItem('sidebarWidth', parseInt(sidebar.style.width, 10) || 260);
-        window.removeEventListener('mousemove', onMove);
-        window.removeEventListener('mouseup', onUp);
-      };
-      window.addEventListener('mousemove', onMove);
-      window.addEventListener('mouseup', onUp);
     });
   }
 
   // Response panel height resizer.
   if (responseResizer && responsePanel) {
-    responseResizer.addEventListener('mousedown', (e) => {
-      if (responsePanel.classList.contains('collapsed')) return;
-      e.preventDefault();
-      responseResizer.classList.add('active');
-      const startY = e.clientY;
+    startDrag(responseResizer, () => {
+      if (responsePanel.classList.contains('collapsed')) return null;
       const startHeight = responsePanel.offsetHeight;
       document.body.classList.add('is-resizing', 'is-resizing-row');
-      const onMove = (ev) => {
+      return {
+        axis: 'clientY',
         // Dragging up increases the panel height.
-        const h = Math.max(120, Math.min(window.innerHeight * 0.85, startHeight - (ev.clientY - startY)));
-        responsePanel.style.flex = '0 0 ' + h + 'px';
+        onMove: (dy) => { responsePanel.style.flex = '0 0 ' + Math.max(120, Math.min(window.innerHeight * 0.85, startHeight - dy)) + 'px'; },
+        onEnd: () => {
+          document.body.classList.remove('is-resizing', 'is-resizing-row');
+          localStorage.setItem('responseHeight', responsePanel.offsetHeight);
+        }
       };
-      const onUp = () => {
-        responseResizer.classList.remove('active');
-        document.body.classList.remove('is-resizing', 'is-resizing-row');
-        localStorage.setItem('responseHeight', responsePanel.offsetHeight);
-        window.removeEventListener('mousemove', onMove);
-        window.removeEventListener('mouseup', onUp);
-      };
-      window.addEventListener('mousemove', onMove);
-      window.addEventListener('mouseup', onUp);
     });
   }
 
   // Chat panel width resizer (drag left grows width — it's on the right edge).
   if (chatResizer && chatPanel) {
-    chatResizer.addEventListener('mousedown', (e) => {
-      if (chatPanel.classList.contains('collapsed')) return;
-      e.preventDefault();
-      chatResizer.classList.add('active');
-      const startX = e.clientX;
+    startDrag(chatResizer, () => {
+      if (chatPanel.classList.contains('collapsed')) return null;
       const startWidth = chatPanel.offsetWidth;
       document.body.classList.add('is-resizing');
-      const onMove = (ev) => {
-        const w = Math.max(300, Math.min(640, startWidth - (ev.clientX - startX)));
-        chatPanel.style.width = w + 'px';
+      return {
+        axis: 'clientX',
+        onMove: (dx) => { chatPanel.style.width = Math.max(300, Math.min(640, startWidth - dx)) + 'px'; },
+        onEnd: () => {
+          document.body.classList.remove('is-resizing');
+          localStorage.setItem('chatWidth', parseInt(chatPanel.style.width, 10) || 380);
+        }
       };
-      const onUp = () => {
-        chatResizer.classList.remove('active');
-        document.body.classList.remove('is-resizing');
-        localStorage.setItem('chatWidth', parseInt(chatPanel.style.width, 10) || 380);
-        window.removeEventListener('mousemove', onMove);
-        window.removeEventListener('mouseup', onUp);
-      };
-      window.addEventListener('mousemove', onMove);
-      window.addEventListener('mouseup', onUp);
     });
   }
 }
 
 // Application Startup
+// ===== Theme (light / dark) =====
+// The initial data-theme attribute is set before first paint by theme-init.js
+// (anti-flash). Here we add persistence, the toggle button, system-preference
+// tracking, and keep the native title-bar overlay (Windows/Linux) in sync.
+function getStoredTheme() {
+  return localStorage.getItem('theme'); // 'light' | 'dark' | null (null = follow system)
+}
+
+function resolveSystemTheme() {
+  return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+}
+
+function applyTheme(theme, { persist = true } = {}) {
+  document.documentElement.dataset.theme = theme;
+  if (persist) localStorage.setItem('theme', theme);
+  syncNativeThemeOverlay(theme);
+}
+
+// Clear any explicit choice so the app follows the OS preference again.
+function followSystemTheme() {
+  localStorage.removeItem('theme');
+  const theme = resolveSystemTheme();
+  document.documentElement.dataset.theme = theme;
+  syncNativeThemeOverlay(theme);
+}
+
+function toggleTheme() {
+  const current = document.documentElement.dataset.theme || 'dark';
+  applyTheme(current === 'dark' ? 'light' : 'dark');
+}
+
+// Recolor the native window-control overlay on Windows/Linux (no-op on macOS).
+function syncNativeThemeOverlay(theme) {
+  if (window.teamapi && window.teamapi.theme && window.teamapi.theme.set) {
+    window.teamapi.theme.set(theme);
+  }
+}
+
+function initTheme() {
+  // Reflect the OS platform so CSS can reserve space for native window controls.
+  if (window.teamapi && window.teamapi.platform) {
+    document.documentElement.dataset.platform = window.teamapi.platform;
+  }
+
+  const themeBtn = document.getElementById('btnToggleTheme');
+  if (themeBtn) themeBtn.addEventListener('click', toggleTheme);
+
+  // Titlebar gear → Settings dialog (Appearance + AI Provider).
+  const settingsBtn = document.getElementById('btnOpenSettings');
+  if (settingsBtn) settingsBtn.addEventListener('click', openSettingsModal);
+
+  // Appearance segmented control inside Settings (live preview on click).
+  const themeControl = document.getElementById('settingsThemeControl');
+  if (themeControl) {
+    themeControl.addEventListener('click', (e) => {
+      const opt = e.target.closest('.theme-opt');
+      if (opt && opt.dataset.theme) setThemeMode(opt.dataset.theme);
+    });
+  }
+
+  // Settings dialog category tabs.
+  const settingsTabs = document.querySelector('.settings-tabs');
+  if (settingsTabs) {
+    settingsTabs.addEventListener('click', (e) => {
+      const tab = e.target.closest('.settings-tab');
+      if (!tab || !tab.dataset.settingsTab) return;
+      settingsTabs.querySelectorAll('.settings-tab').forEach((t) =>
+        t.classList.toggle('active', t === tab));
+      document.querySelectorAll('.settings-pane').forEach((p) =>
+        p.classList.toggle('active', p.dataset.settingsPane === tab.dataset.settingsTab));
+    });
+  }
+
+  // Follow the OS theme, but only while the user hasn't chosen explicitly.
+  const media = window.matchMedia('(prefers-color-scheme: light)');
+  media.addEventListener('change', (e) => {
+    if (!getStoredTheme()) {
+      const theme = e.matches ? 'light' : 'dark';
+      document.documentElement.dataset.theme = theme;
+      syncNativeThemeOverlay(theme);
+    }
+  });
+
+  // Sync the native overlay with whatever theme was applied before paint.
+  syncNativeThemeOverlay(document.documentElement.dataset.theme || 'dark');
+}
+
+// Active theme mode shown in Settings: explicit choice, or 'system' when following OS.
+function currentThemeMode() {
+  const stored = getStoredTheme();
+  return stored || 'system';
+}
+
+function syncSettingsThemeControl() {
+  const mode = currentThemeMode();
+  document.querySelectorAll('#settingsThemeControl .theme-opt').forEach((b) => {
+    b.classList.toggle('active', b.dataset.theme === mode);
+  });
+}
+
+function setThemeMode(mode) {
+  if (mode === 'system') followSystemTheme();
+  else applyTheme(mode);
+  syncSettingsThemeControl();
+}
+
+// Open the Settings dialog from the titlebar gear. Reflects the current theme in
+// the Appearance control, then lets ai-chat.js populate the AI provider fields.
+function openSettingsModal() {
+  syncSettingsThemeControl();
+  if (typeof window.openAISettings === 'function') {
+    window.openAISettings();
+  } else {
+    openDialog('modalAISettings');
+  }
+}
+
 window.addEventListener('DOMContentLoaded', async () => {
+  initTheme();
   setupEventListeners();
   setupAutocompleteForScripts();
 
@@ -2362,14 +2483,11 @@ function renderResponseBody(text, mode) {
       const iframe = document.createElement('iframe');
       iframe.className = 'preview-iframe';
       iframe.sandbox = 'allow-scripts allow-popups';
-      // Load via a blob URL instead of srcdoc: a srcdoc document inherits the
-      // app's strict CSP (which blocks inline scripts/images/styles), but a blob
-      // document has its own (empty) policy, so the previewed HTML renders fully.
-      // sandbox still keeps it origin-isolated from the app.
-      const blob = new Blob([text], { type: 'text/html;charset=utf-8' });
-      if (display._lastPreviewUrl) { try { URL.revokeObjectURL(display._lastPreviewUrl); } catch (e) {} }
-      display._lastPreviewUrl = URL.createObjectURL(blob);
-      iframe.src = display._lastPreviewUrl;
+      // Load via a data: URL. Unlike blob:/srcdoc:, a data: document gets an
+      // opaque origin and does NOT inherit the app's strict CSP — so the
+      // previewed HTML (inline scripts/styles/images) renders fully. The sandbox
+      // (no allow-same-origin) still keeps it isolated from the app's origin.
+      iframe.src = 'data:text/html;charset=utf-8,' + encodeURIComponent(text);
       display.appendChild(iframe);
     }
   } else if (mode === 'pretty') {

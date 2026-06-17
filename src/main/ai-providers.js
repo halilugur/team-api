@@ -3,11 +3,20 @@
 // and streams text deltas back via callbacks. All HTTP runs in the main process
 // (no CORS). Uses axios with responseType: 'stream'.
 const axios = require('axios');
+const https = require('https');
+
+// Reused https.Agent for endpoints whose certificate chain is self-signed or
+// otherwise untrusted (common for local LLM servers / custom proxies). Enabled
+// per-request via opts.allowSelfSigned (driven by the AI settings toggle).
+const insecureAgent = new https.Agent({ rejectUnauthorized: false });
+function tlsOpts(opts) {
+  return (opts && opts.allowSelfSigned) ? { httpsAgent: insecureAgent } : {};
+}
 
 // Static provider catalog (no secrets). Returned to the renderer via ai:providers:list.
 // `driver` selects the transport; multiple entries can share one (OpenAI-Compatible
-// reuses the OpenAI path). Order here = dropdown order. Ollama is first/default
-// (local, no API key). `keyOptional` = key field shown but not required.
+// reuses the OpenAI path). Order here = dropdown order. The default active provider
+// is the Custom (OpenAI-Compatible) entry; `keyOptional` = key field shown but not required.
 const PROVIDERS = {
   ollama: {
     id: 'ollama',
@@ -31,13 +40,13 @@ const PROVIDERS = {
   },
   'openai-compatible': {
     id: 'openai-compatible',
-    name: 'OpenAI-Compatible',
+    name: 'Custom',
     driver: 'openai',
     requiresKey: false,
     keyOptional: true,
     keyPlaceholder: 'sk-... (optional)',
     defaultBaseUrl: '',
-    defaultModel: '',
+    defaultModel: 'default',
     models: []
   },
   claude: {
@@ -157,7 +166,7 @@ async function streamOpenAI(opts, handlers) {
   const headers = { 'Content-Type': 'application/json' };
   if (opts.apiKey) headers.Authorization = `Bearer ${opts.apiKey}`; // optional for OpenAI-Compatible local servers
   const res = await axios.post(`${baseUrl}/chat/completions`, body, {
-    headers, responseType: 'stream', validateStatus: () => true, signal: opts.signal, timeout: 0
+    headers, responseType: 'stream', validateStatus: () => true, signal: opts.signal, timeout: 0, ...tlsOpts(opts), ...opts.proxyAxios
   });
   if (res.status >= 400) throw new Error(`OpenAI ${res.status}: ${(await readStream(res.data)).slice(0, 500)}`);
   consumeSSE(res.data, handleOpenAIData, handlers);
@@ -175,7 +184,7 @@ async function streamClaude(opts, handlers) {
   // NOTE: temperature/top_p/top_k intentionally omitted — rejected (400) on Claude 4.6+.
   const res = await axios.post(`${baseUrl}/v1/messages`, body, {
     headers: { 'x-api-key': opts.apiKey, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
-    responseType: 'stream', validateStatus: () => true, signal: opts.signal, timeout: 0
+    responseType: 'stream', validateStatus: () => true, signal: opts.signal, timeout: 0, ...tlsOpts(opts), ...opts.proxyAxios
   });
   if (res.status >= 400) throw new Error(`Claude ${res.status}: ${(await readStream(res.data)).slice(0, 500)}`);
   consumeSSE(res.data, handleClaudeData, handlers);
@@ -196,7 +205,7 @@ async function streamGemini(opts, handlers) {
   const url = `${baseUrl}/models/${encodeURIComponent(opts.model)}:streamGenerateContent?alt=sse&key=${encodeURIComponent(opts.apiKey)}`;
   const res = await axios.post(url, body, {
     headers: { 'Content-Type': 'application/json' },
-    responseType: 'stream', validateStatus: () => true, signal: opts.signal, timeout: 0
+    responseType: 'stream', validateStatus: () => true, signal: opts.signal, timeout: 0, ...tlsOpts(opts), ...opts.proxyAxios
   });
   if (res.status >= 400) throw new Error(`Gemini ${res.status}: ${(await readStream(res.data)).slice(0, 500)}`);
   consumeSSE(res.data, handleGeminiData, handlers);
@@ -210,7 +219,7 @@ async function streamOllama(opts, handlers) {
   const body = { model: opts.model, messages, stream: true };
   const res = await axios.post(`${baseUrl}/api/chat`, body, {
     headers: { 'Content-Type': 'application/json' },
-    responseType: 'stream', validateStatus: () => true, signal: opts.signal, timeout: 0
+    responseType: 'stream', validateStatus: () => true, signal: opts.signal, timeout: 0, ...tlsOpts(opts), ...opts.proxyAxios
   });
   if (res.status >= 400) throw new Error(`Ollama ${res.status}: ${(await readStream(res.data)).slice(0, 500)}`);
   consumeNDJSON(res.data, handleOllamaLine, handlers);
@@ -247,11 +256,12 @@ async function streamChat(opts, onDelta, signal) {
 }
 
 // Fetch the list of available models for a provider (best-effort; static catalog otherwise).
-async function listModels(provider, baseUrl, apiKey) {
+async function listModels(provider, baseUrl, apiKey, allowSelfSigned, proxyAxios) {
   const driver = (PROVIDERS[provider] && PROVIDERS[provider].driver) || provider;
+  const tls = tlsOpts({ allowSelfSigned });
   if (driver === 'ollama') {
     const b = trimUrl(baseUrl) || PROVIDERS.ollama.defaultBaseUrl;
-    const res = await axios.get(`${b}/api/tags`, { timeout: 8000, validateStatus: () => true });
+    const res = await axios.get(`${b}/api/tags`, { timeout: 8000, validateStatus: () => true, ...tls, ...proxyAxios });
     if (res.status >= 400) throw new Error(`Ollama ${res.status}`);
     return (res.data && res.data.models || []).map(m => m.name);
   }
@@ -260,19 +270,19 @@ async function listModels(provider, baseUrl, apiKey) {
     if (!b) throw new Error('Set a Base URL first');
     const headers = {};
     if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
-    const res = await axios.get(`${b}/models`, { headers, timeout: 8000, validateStatus: () => true });
+    const res = await axios.get(`${b}/models`, { headers, timeout: 8000, validateStatus: () => true, ...tls, ...proxyAxios });
     if (res.status >= 400) throw new Error(`OpenAI ${res.status}`);
     return (res.data && res.data.data || []).map(m => m.id);
   }
   if (driver === 'gemini') {
     const b = trimUrl(baseUrl) || PROVIDERS.gemini.defaultBaseUrl;
-    const res = await axios.get(`${b}/models?key=${encodeURIComponent(apiKey)}&pageSize=200`, { timeout: 8000, validateStatus: () => true });
+    const res = await axios.get(`${b}/models?key=${encodeURIComponent(apiKey)}&pageSize=200`, { timeout: 8000, validateStatus: () => true, ...tls, ...proxyAxios });
     if (res.status >= 400) throw new Error(`Gemini ${res.status}`);
     return (res.data && res.data.models || []).map(m => (m.name || '').replace(/^models\//, ''));
   }
   if (driver === 'claude') {
     const b = trimUrl(baseUrl) || PROVIDERS.claude.defaultBaseUrl;
-    const res = await axios.get(`${b}/v1/models`, { headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' }, timeout: 8000, validateStatus: () => true });
+    const res = await axios.get(`${b}/v1/models`, { headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' }, timeout: 8000, validateStatus: () => true, ...tls, ...proxyAxios });
     if (res.status >= 400) throw new Error(`Claude ${res.status}`);
     return (res.data && res.data.data || []).map(m => m.id);
   }

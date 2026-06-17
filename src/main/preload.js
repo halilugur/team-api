@@ -71,5 +71,12 @@ contextBridge.exposeInMainWorld('teamapi', {
       ipcRenderer.on('ai:stream:error', listener);
       return () => ipcRenderer.removeListener('ai:stream:error', listener);
     }
+  },
+  // OS platform — used by the renderer to reserve space for native window controls.
+  platform: process.platform,
+  // Theme — lets the renderer ask the main process to recolor the native
+  // title-bar overlay (Windows/Linux) so it matches the chosen theme.
+  theme: {
+    set: (theme) => ipcRenderer.invoke('theme:set', theme)
   }
 });

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, Menu, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, Menu, shell, session } = require('electron');
 app.name = 'Team API';
 app.setName('Team API');
 const pathModule = require('path');
@@ -7,6 +7,24 @@ const { v4: uuidv4 } = require('uuid');
 const axios = require('axios');
 const vm = require('vm');
 const { PROVIDERS, streamChat, listModels } = require('./ai-providers');
+
+// Resolve the OS-configured proxy for a URL into an axios `proxy` config ({} if none).
+// Lets "Use system proxy" route Node/axios requests (which ignore Electron's
+// session proxy) through the same proxy the OS would use.
+async function resolveSystemProxy(url) {
+  if (!url) return {};
+  try {
+    const line = await session.defaultSession.resolveProxy(url);
+    if (!line || /^direct/i.test(line.trim())) return {};
+    const first = line.split(';')[0].trim();
+    const m = first.match(/^(PROXY|HTTPS|SOCKS\d?)\s+(.+)/i);
+    if (!m || /^SOCKS/i.test(m[1])) return {}; // axios built-in can't do SOCKS
+    const [host, port] = m[2].trim().split(':');
+    return { proxy: { protocol: 'http', host, port: parseInt(port, 10) || 80 } };
+  } catch (e) {
+    return {};
+  }
+}
 
 let mainWindow = null;
 let currentWorkspace = null;
@@ -180,6 +198,9 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  // Use the OS-configured proxy so resolveProxy() (for "Use system proxy")
+  // reflects the system settings.
+  try { session.defaultSession.setProxy({ mode: 'system' }); } catch (e) {}
   createWindow();
 
   app.on('activate', () => {
@@ -706,6 +727,7 @@ ipcMain.handle('request:execute', async (event, { request: requestObj, envVars }
   let duration = 0;
   const start = process.hrtime();
   try {
+    const proxyAxios = aiGetSettings().useSystemProxy ? await resolveSystemProxy(interpolatedUrl) : {};
     response = await axios({
       method: requestObj.method || 'GET',
       url: interpolatedUrl,
@@ -713,7 +735,8 @@ ipcMain.handle('request:execute', async (event, { request: requestObj, envVars }
       data: bodyData,
       responseType: 'arraybuffer', // always fetch as buffer to prevent corruption of images/binary
       validateStatus: () => true, // Accept all response status codes
-      timeout: 15000 // 15s timeout
+      timeout: 15000, // 15s timeout
+      ...proxyAxios // route through the OS system proxy when enabled
     });
     const diff = process.hrtime(start);
     duration = Math.round((diff[0] * 1000) + (diff[1] / 1000000));
@@ -836,7 +859,7 @@ function aiGetSettings() {
   try {
     if (fs.existsSync(aiSettingsPath())) return JSON.parse(fs.readFileSync(aiSettingsPath(), 'utf8'));
   } catch (e) {}
-  return { providers: {}, activeProvider: 'ollama' };
+  return { providers: {}, activeProvider: 'openai-compatible' };
 }
 function aiSaveSettings(s) {
   try { fs.writeFileSync(aiSettingsPath(), JSON.stringify(s, null, 2), 'utf8'); } catch (e) {}
@@ -852,11 +875,29 @@ ipcMain.handle('ai:providers:list', async () => Object.values(PROVIDERS));
 ipcMain.handle('ai:settings:get', async () => aiGetSettings());
 ipcMain.handle('ai:settings:save', async (event, s) => aiSaveSettings(s || {}));
 
+// Recolor the native title-bar overlay (Windows/Linux only) to match the chosen
+// theme. macOS uses traffic lights on the left and is unaffected.
+ipcMain.handle('theme:set', async (event, theme) => {
+  if (process.platform === 'darwin' || !mainWindow) return;
+  const light = theme === 'light';
+  try {
+    mainWindow.setTitleBarOverlay({
+      color: light ? '#ffffff' : '#0b0e14',
+      symbolColor: light ? '#475569' : '#94a3b8'
+    });
+  } catch (e) {
+    /* titleBarOverlay not supported on this platform — ignore */
+  }
+});
+
 // List models for a provider using the saved baseUrl + apiKey.
 ipcMain.handle('ai:models:list', async (event, provider) => {
   const settings = aiGetSettings();
   const ps = (settings.providers && settings.providers[provider]) || {};
-  return await listModels(provider, ps.baseUrl, ps.apiKey);
+  const def = PROVIDERS[provider] || {};
+  const baseUrl = ps.baseUrl || def.defaultBaseUrl || '';
+  const proxyAxios = settings.useSystemProxy ? await resolveSystemProxy(baseUrl) : {};
+  return await listModels(provider, ps.baseUrl, ps.apiKey, !!settings.allowSelfSignedCerts, proxyAxios);
 });
 
 // Workspace-scoped chats (mirror collections CRUD pattern).
@@ -911,8 +952,12 @@ ipcMain.handle('ai:chat', async (event, args) => {
   if (requestId) aiActiveRequests.set(requestId, controller);
 
   try {
+    const aiBaseUrl = ps.baseUrl || def.defaultBaseUrl || '';
+    const proxyAxios = settings.useSystemProxy ? await resolveSystemProxy(aiBaseUrl) : {};
     const fullText = await streamChat({
-      provider, baseUrl: ps.baseUrl || def.defaultBaseUrl || '', apiKey: ps.apiKey, model, messages, system, temperature, maxTokens
+      provider, baseUrl: aiBaseUrl, apiKey: ps.apiKey, model, messages, system, temperature, maxTokens,
+      allowSelfSigned: !!settings.allowSelfSignedCerts,
+      proxyAxios
     }, (text) => {
       if (mainWindow && requestId) mainWindow.webContents.send('ai:stream:chunk', { requestId, text });
     }, controller.signal);

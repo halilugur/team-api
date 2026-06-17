@@ -4,9 +4,12 @@
 <head>
   <meta charset="UTF-8">
   <meta http-equiv="Content-Security-Policy"
-    content="default-src 'self' https://fonts.gstatic.com; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; frame-src 'self' blob:;">
+    content="default-src 'self' https://fonts.gstatic.com; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; frame-src 'self' blob: data:;">
   <title>Team API — HTTP Client</title>
   <link rel="stylesheet" href="styles.css">
+  <!-- Apply stored/system theme before first paint to avoid a theme flash.
+       CSP is script-src 'self', so this is an external file, not inline. -->
+  <script src="theme-init.js"></script>
 </head>
 
 <body>
@@ -22,17 +25,46 @@
           <line x1="9" y1="3" x2="9" y2="21"></line>
         </svg>
       </button>
-      <button class="titlebar-toggle-btn" id="btnToggleChat" title="Toggle AI Chat (Ctrl+])" style="display: none;">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-          stroke-linecap="round" stroke-linejoin="round">
-          <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path>
-        </svg>
-      </button>
       <svg class="titlebar-icon" width="12" height="12" viewBox="0 0 24 24" fill="currentColor"
         style="color: var(--accent-blue);">
         <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
       </svg>
       <span class="titlebar-workspace-name" id="titlebarWorkspaceName">TeamAPI</span>
+
+      <!-- Right-aligned action group: sits just before the native window controls -->
+      <div class="titlebar-actions">
+        <button class="titlebar-toggle-btn" id="btnToggleTheme" title="Toggle theme">
+          <svg class="icon-moon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+          </svg>
+          <svg class="icon-sun" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="5"></circle>
+            <line x1="12" y1="1" x2="12" y2="3"></line>
+            <line x1="12" y1="21" x2="12" y2="23"></line>
+            <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+            <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+            <line x1="1" y1="12" x2="3" y2="12"></line>
+            <line x1="21" y1="12" x2="23" y2="12"></line>
+            <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+            <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+          </svg>
+        </button>
+        <button class="titlebar-toggle-btn" id="btnOpenSettings" title="Settings">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="3"></circle>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+          </svg>
+        </button>
+        <button class="titlebar-toggle-btn" id="btnToggleChat" title="Toggle AI Chat (Ctrl+])" style="display: none;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path>
+          </svg>
+        </button>
+      </div>
     </div>
   </header>
 
@@ -667,19 +699,74 @@
 
 
 
-  <!-- AI Provider Settings Modal -->
+  <!-- Settings Modal (Appearance + AI Provider). Keeps the historical
+       modalAISettings id and inner IDs so ai-chat.js wiring stays intact. -->
   <dialog id="modalAISettings" style="max-width: 560px; width: 90%;">
-    <div class="dialog-header">AI Provider Settings</div>
-    <div class="dialog-body" style="flex-direction: column; gap: 14px;">
-      <div class="form-group">
-        <label for="aiSettingsProvider">Provider</label>
-        <select class="form-control" id="aiSettingsProvider"></select>
+    <div class="dialog-header">Settings</div>
+
+    <!-- Category tabs -->
+    <div class="settings-tabs">
+      <button type="button" class="settings-tab active" data-settings-tab="appearance">Appearance</button>
+      <button type="button" class="settings-tab" data-settings-tab="ai">AI Provider</button>
+      <button type="button" class="settings-tab" data-settings-tab="proxy">Proxy</button>
+    </div>
+
+    <div class="dialog-body settings-body">
+
+      <!-- Appearance -->
+      <div class="settings-pane active" data-settings-pane="appearance">
+        <div class="settings-section">
+          <div class="settings-section-title">Theme</div>
+          <div class="theme-seg" id="settingsThemeControl">
+            <button type="button" class="theme-opt" data-theme="system">System</button>
+            <button type="button" class="theme-opt" data-theme="dark">Dark</button>
+            <button type="button" class="theme-opt" data-theme="light">Light</button>
+          </div>
+          <div class="settings-hint">Choose a theme. "System" follows your OS appearance.</div>
+        </div>
       </div>
-      <div id="aiSettingsFields" style="display: flex; flex-direction: column; gap: 12px;"></div>
-      <div style="font-size: 11px; color: var(--text-dim); line-height: 1.5;">
-        Keys are stored in this app's global data and are never written into the shared workspace
-        folder. Models are editable; use ⟳ in the chat header to fetch the ones your account can see.
+
+      <!-- AI Provider -->
+      <div class="settings-pane" data-settings-pane="ai">
+        <div class="settings-section">
+          <div class="form-group">
+            <label for="aiSettingsProvider">Provider</label>
+            <select class="form-control" id="aiSettingsProvider"></select>
+          </div>
+          <div id="aiSettingsFields" style="display: flex; flex-direction: column; gap: 12px;"></div>
+          <div class="settings-hint">
+            Keys are stored in this app's global data and are never written into the shared workspace
+            folder. Models are editable; use ⟳ in the chat header to fetch the ones your account can see.
+          </div>
+        </div>
+        <div class="settings-section">
+          <label class="switch-row">
+            <span class="switch">
+              <input type="checkbox" id="aiSetAllowSelfSigned">
+              <span class="switch-track"></span>
+            </span>
+            <span>Allow self-signed certificates (skip TLS verification)</span>
+          </label>
+        </div>
       </div>
+
+      <!-- Proxy -->
+      <div class="settings-pane" data-settings-pane="proxy">
+        <div class="settings-section">
+          <label class="switch-row">
+            <span class="switch">
+              <input type="checkbox" id="aiSetUseSystemProxy">
+              <span class="switch-track"></span>
+            </span>
+            <span>Use system proxy</span>
+          </label>
+          <div class="settings-hint">
+            Route HTTP test requests and AI chat through your operating system's configured proxy
+            (System Settings › Network › Proxies). No manual host/port needed. SOCKS proxies are not supported.
+          </div>
+        </div>
+      </div>
+
     </div>
     <div class="dialog-footer">
       <button class="btn-secondary" id="btnCancelAISettings">Close</button>
