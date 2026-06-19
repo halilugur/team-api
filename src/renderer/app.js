@@ -478,8 +478,21 @@ function resolveSystemTheme() {
   return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
 }
 
+// Apply the data-theme attribute with ALL transitions disabled for one frame,
+// so the whole UI snaps to the new theme at once instead of animating each
+// element at a different speed (which looked staggered/laggy on theme switch).
+function paintTheme(theme) {
+  const root = document.documentElement;
+  root.classList.add('no-transition');
+  root.dataset.theme = theme;
+  // Force a synchronous reflow so the new variable values commit while
+  // transitions are off, then re-enable them after the next paint.
+  void root.offsetWidth;
+  requestAnimationFrame(() => requestAnimationFrame(() => root.classList.remove('no-transition')));
+}
+
 function applyTheme(theme, { persist = true } = {}) {
-  document.documentElement.dataset.theme = theme;
+  paintTheme(theme);
   if (persist) localStorage.setItem('theme', theme);
   syncNativeThemeOverlay(theme);
 }
@@ -488,7 +501,7 @@ function applyTheme(theme, { persist = true } = {}) {
 function followSystemTheme() {
   localStorage.removeItem('theme');
   const theme = resolveSystemTheme();
-  document.documentElement.dataset.theme = theme;
+  paintTheme(theme);
   syncNativeThemeOverlay(theme);
 }
 
@@ -539,12 +552,27 @@ function initTheme() {
     });
   }
 
+  // Advanced pane: show the userData path + wire the reset button.
+  const dataPathEl = document.getElementById('userDataPath');
+  if (dataPathEl && window.teamapi && window.teamapi.app && window.teamapi.app.getDataPath) {
+    window.teamapi.app.getDataPath().then((p) => { if (p) dataPathEl.textContent = p; });
+  }
+  const resetBtn = document.getElementById('btnResetAppData');
+  if (resetBtn) {
+    resetBtn.addEventListener('click', async () => {
+      if (!window.confirm('Reset all app data?\n\nThis clears AI settings, theme, cache and stored UI state, then restarts the app. This cannot be undone.')) return;
+      if (window.teamapi && window.teamapi.app && window.teamapi.app.resetData) {
+        await window.teamapi.app.resetData();
+      }
+    });
+  }
+
   // Follow the OS theme, but only while the user hasn't chosen explicitly.
   const media = window.matchMedia('(prefers-color-scheme: light)');
   media.addEventListener('change', (e) => {
     if (!getStoredTheme()) {
       const theme = e.matches ? 'light' : 'dark';
-      document.documentElement.dataset.theme = theme;
+      paintTheme(theme);
       syncNativeThemeOverlay(theme);
     }
   });
@@ -887,6 +915,9 @@ function setupEventListeners() {
       queueSave();
     }
   };
+
+  // OAuth 2.0 inline panel (Current Token + Configure New Token)
+  setupOauthPanel();
 
   // Body Type Segmented Control Buttons
   const bodyTypeSelect = document.getElementById('bodyTypeSelect');
@@ -2219,13 +2250,152 @@ function syncParamsToUrl() {
 // Dynamic Auth Fields renderer
 function renderAuthFields(type) {
   document.querySelectorAll('.auth-fields').forEach(f => f.style.display = 'none');
+  // OAuth 2.0 uses a wide two-column row; other auth types stay compact.
+  const container = document.querySelector('.auth-container');
+  if (container) container.classList.toggle('auth-wide', type === 'oauth2');
   if (type === 'bearer') {
     document.getElementById('authBearerFields').style.display = 'block';
   } else if (type === 'basic') {
     document.getElementById('authBasicFields').style.display = 'block';
   } else if (type === 'apikey') {
     document.getElementById('authApiKeyFields').style.display = 'block';
+  } else if (type === 'oauth2') {
+    document.getElementById('authOauthFields').style.display = 'flex';
+    toggleOauthPasswordFields();
+    refreshOauthTokenSelect();
   }
+}
+
+// ---- OAuth 2.0 (inline, Postman-style) ----
+function escapeHtml(s) {
+  return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+function oauthTokenStatus(tok) {
+  if (!tok) return { cls: '', text: 'No token selected' };
+  if (!tok.accessToken) return { cls: 'expired', text: 'No access token — click "Get New Access Token" below' };
+  if (tok.expiresAt && Date.now() >= tok.expiresAt) return { cls: 'expired', text: 'Expired' + (tok.refreshToken ? ' (will auto-refresh on send)' : '') };
+  return { cls: 'valid', text: 'Valid' + (tok.expiresAt ? ` · expires ${new Date(tok.expiresAt).toLocaleString()}` : '') };
+}
+const oauthEl = (id) => document.getElementById(id);
+
+async function refreshOauthTokenSelect() {
+  const sel = oauthEl('oauthTokenSelect');
+  if (!sel || !window.teamapi || !window.teamapi.oauth) return;
+  const tokens = await window.teamapi.oauth.listTokens();
+  const current = state.activeRequest && state.activeRequest.auth ? state.activeRequest.auth.tokenId : '';
+  sel.innerHTML = '<option value="">— No token —</option>' +
+    tokens.map(t => `<option value="${t.id}"${t.id === current ? ' selected' : ''}>${escapeHtml(t.name || 'Untitled')}</option>`).join('');
+  const tok = tokens.find(t => t.id === current) || null;
+  refreshOauthTokenStatus(tok);
+  const delBtn = oauthEl('btnOauthDelete');
+  if (delBtn) delBtn.disabled = !tok;
+  const prefix = oauthEl('oauthHeaderPrefix');
+  if (prefix) { prefix.disabled = !tok; prefix.value = tok ? (tok.headerPrefix == null ? 'Bearer' : tok.headerPrefix) : 'Bearer'; }
+}
+
+function refreshOauthTokenStatus(tok) {
+  const el = oauthEl('oauthTokenStatus');
+  if (!el) return;
+  const s = oauthTokenStatus(tok);
+  el.className = 'oauth-status ' + (s.cls || '');
+  el.textContent = s.text;
+}
+
+function toggleOauthPasswordFields() {
+  const pf = oauthEl('oauthPasswordFields');
+  if (pf) pf.style.display = (oauthEl('oauthGrant').value === 'password') ? 'flex' : 'none';
+}
+
+function readOauthForm() {
+  return {
+    name: oauthEl('oauthName').value.trim() || 'Untitled',
+    grantType: oauthEl('oauthGrant').value,
+    tokenUrl: oauthEl('oauthTokenUrl').value.trim(),
+    clientId: oauthEl('oauthClientId').value,
+    clientSecret: oauthEl('oauthClientSecret').value,
+    username: oauthEl('oauthUsername').value,
+    password: oauthEl('oauthPassword').value,
+    scope: oauthEl('oauthScope').value,
+    clientAuth: oauthEl('oauthClientAuth').value,
+    headerPrefix: (oauthEl('oauthHeaderPrefix').value || '').trim() || 'Bearer'
+  };
+}
+
+function clearOauthForm() {
+  ['oauthName', 'oauthTokenUrl', 'oauthClientId', 'oauthClientSecret', 'oauthUsername', 'oauthPassword', 'oauthScope'].forEach((id) => {
+    const el = oauthEl(id); if (el) el.value = '';
+  });
+  oauthEl('oauthGrant').value = 'client_credentials';
+  oauthEl('oauthClientAuth').value = 'body';
+  toggleOauthPasswordFields();
+}
+
+async function oauthGetToken() {
+  const cfg = readOauthForm();
+  if (!cfg.tokenUrl) { showToast('Access Token URL is required', 'warning'); return; }
+  if (!cfg.clientId) { showToast('Client ID is required', 'warning'); return; }
+  if (cfg.grantType === 'password' && (!cfg.username || !cfg.password)) { showToast('Username and password are required for the password grant', 'warning'); return; }
+  showToast('Requesting token…', 'info');
+  try {
+    const tok = await window.teamapi.oauth.getToken(cfg);
+    if (state.activeRequest) {
+      if (!state.activeRequest.auth) state.activeRequest.auth = { type: 'oauth2' };
+      state.activeRequest.auth.type = 'oauth2';
+      state.activeRequest.auth.tokenId = tok.id;
+      queueSave();
+    }
+    showToast(`Got token "${tok.name}"`, 'success');
+    await refreshOauthTokenSelect();
+    clearOauthForm();
+  } catch (err) {
+    showToast('Token request failed: ' + ((err && err.message) || err), 'error');
+  }
+}
+
+async function oauthSelectToken(id) {
+  if (state.activeRequest) {
+    if (!state.activeRequest.auth) state.activeRequest.auth = { type: 'oauth2' };
+    state.activeRequest.auth.type = 'oauth2';
+    state.activeRequest.auth.tokenId = id || '';
+    queueSave();
+  }
+  await refreshOauthTokenSelect();
+}
+
+async function oauthDeleteSelected() {
+  const auth = state.activeRequest && state.activeRequest.auth;
+  const id = auth && auth.tokenId;
+  if (!id) return;
+  if (!window.confirm('Delete the selected token?')) return;
+  await window.teamapi.oauth.deleteToken(id);
+  auth.tokenId = '';
+  queueSave();
+  await refreshOauthTokenSelect();
+  showToast('Token deleted', 'success');
+}
+
+async function oauthUpdatePrefix(value) {
+  const auth = state.activeRequest && state.activeRequest.auth;
+  const id = auth && auth.tokenId;
+  if (!id) return;
+  const tokens = await window.teamapi.oauth.listTokens();
+  const tok = tokens.find(t => t.id === id);
+  if (!tok) return;
+  tok.headerPrefix = (value || '').trim() || 'Bearer';
+  await window.teamapi.oauth.saveToken(tok);
+}
+
+function setupOauthPanel() {
+  const sel = oauthEl('oauthTokenSelect');
+  if (sel) sel.addEventListener('change', (e) => oauthSelectToken(e.target.value));
+  const grant = oauthEl('oauthGrant');
+  if (grant) grant.addEventListener('change', toggleOauthPasswordFields);
+  const get = oauthEl('btnOauthGetToken');
+  if (get) get.addEventListener('click', oauthGetToken);
+  const del = oauthEl('btnOauthDelete');
+  if (del) del.addEventListener('click', oauthDeleteSelected);
+  const prefix = oauthEl('oauthHeaderPrefix');
+  if (prefix) prefix.addEventListener('change', (e) => oauthUpdatePrefix(e.target.value));
 }
 
 // Dynamic Body Fields renderer

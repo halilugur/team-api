@@ -4,25 +4,25 @@ app.setName('Team API');
 const pathModule = require('path');
 const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
-const axios = require('axios');
 const vm = require('vm');
 const { PROVIDERS, streamChat, listModels } = require('./ai-providers');
+const { request, toArray } = require('./http-client');
 
-// Resolve the OS-configured proxy for a URL into an axios `proxy` config ({} if none).
-// Lets "Use system proxy" route Node/axios requests (which ignore Electron's
+// Resolve the OS-configured proxy for a URL into { host, port } (null if none).
+// Lets "Use system proxy" route Node http/https requests (which ignore Electron's
 // session proxy) through the same proxy the OS would use.
 async function resolveSystemProxy(url) {
-  if (!url) return {};
+  if (!url) return null;
   try {
     const line = await session.defaultSession.resolveProxy(url);
-    if (!line || /^direct/i.test(line.trim())) return {};
+    if (!line || /^direct/i.test(line.trim())) return null;
     const first = line.split(';')[0].trim();
     const m = first.match(/^(PROXY|HTTPS|SOCKS\d?)\s+(.+)/i);
-    if (!m || /^SOCKS/i.test(m[1])) return {}; // axios built-in can't do SOCKS
+    if (!m || /^SOCKS/i.test(m[1])) return null; // SOCKS not supported by the CONNECT tunnel
     const [host, port] = m[2].trim().split(':');
-    return { proxy: { protocol: 'http', host, port: parseInt(port, 10) || 80 } };
+    return { host, port: parseInt(port, 10) || 80 };
   } catch (e) {
-    return {};
+    return null;
   }
 }
 
@@ -82,6 +82,7 @@ function createWindow() {
     minHeight: 800,
     resizable: true,
     backgroundColor: '#0f1117',
+    show: false,
     titleBarStyle: 'hidden',
     trafficLightPosition: { x: 12, y: 12 },
     webPreferences: {
@@ -100,6 +101,25 @@ function createWindow() {
   }
 
   mainWindow = new BrowserWindow(options);
+
+  // Color the native window-control overlay (Windows/Linux) to match the applied
+  // theme BEFORE showing the window, so there's no dark control bar on a light
+  // theme. The renderer's theme-init.js has already set <html data-theme> by now.
+  mainWindow.once('ready-to-show', async () => {
+    if (process.platform !== 'darwin') {
+      try {
+        const theme = await mainWindow.webContents.executeJavaScript(
+          "(document.documentElement.dataset.theme || (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'))"
+        );
+        const light = theme === 'light';
+        mainWindow.setTitleBarOverlay({
+          color: light ? '#ffffff' : '#0b0e14',
+          symbolColor: light ? '#475569' : '#94a3b8'
+        });
+      } catch (e) { /* overlay not supported — ignore */ }
+    }
+    mainWindow.show();
+  });
 
   // Open external links (e.g. markdown links in AI chat) in the system browser,
   // never inside the app window.
@@ -625,6 +645,22 @@ ipcMain.handle('request:execute', async (event, { request: requestObj, envVars }
       const key = interpolate(requestObj.auth.key, activeEnvVars);
       const headerName = interpolate(requestObj.auth.headerName, activeEnvVars) || 'X-API-Key';
       requestHeaders[headerName] = key;
+    } else if (type === 'oauth2') {
+      const tok = getOauthTokenById(requestObj.auth.tokenId);
+      if (tok && tok.accessToken) {
+        // Auto-refresh when expired and a refresh_token is available.
+        if (tok.expiresAt && Date.now() >= tok.expiresAt && tok.refreshToken) {
+          try {
+            Object.assign(tok, await oauthRefresh(tok));
+            // Persist the refreshed token back to the store.
+            const all = getOauthTokens();
+            const idx = all.findIndex(t => t.id === tok.id);
+            if (idx >= 0) { all[idx] = tok; saveOauthTokens(all); }
+          } catch (e) { /* keep the stale token; the call will likely 401 */ }
+        }
+        const prefix = tok.headerPrefix == null ? 'Bearer' : tok.headerPrefix;
+        requestHeaders['Authorization'] = prefix ? `${prefix} ${tok.accessToken}` : tok.accessToken;
+      }
     }
   }
 
@@ -708,17 +744,23 @@ ipcMain.handle('request:execute', async (event, { request: requestObj, envVars }
         requestHeaders['Content-Type'] = 'application/x-www-form-urlencoded';
       }
     } else if (type === 'form') {
-      // Multipart form data using native Node/Electron FormData class
-      const formData = new FormData();
+      // Multipart form-data (key/value strings only) built manually (no axios/FormData).
+      const boundary = '----TeamAPI' + Math.random().toString(16).slice(2) + Date.now().toString(16);
+      let parts = '';
       if (requestObj.body.formData && Array.isArray(requestObj.body.formData)) {
         requestObj.body.formData.forEach(f => {
           if (f.enabled && f.key) {
-            formData.append(interpolate(f.key, activeEnvVars), interpolate(f.value, activeEnvVars));
+            const k = interpolate(f.key, activeEnvVars);
+            const v = interpolate(f.value, activeEnvVars);
+            parts += `--${boundary}\r\nContent-Disposition: form-data; name="${k}"\r\n\r\n${v}\r\n`;
           }
         });
       }
-      bodyData = formData;
-      // Do not manually set Content-Type header so Axios can automatically generate boundary
+      parts += `--${boundary}--\r\n`;
+      bodyData = Buffer.from(parts, 'utf8');
+      if (!hasContentType) {
+        requestHeaders['Content-Type'] = `multipart/form-data; boundary=${boundary}`;
+      }
     }
   }
 
@@ -727,17 +769,18 @@ ipcMain.handle('request:execute', async (event, { request: requestObj, envVars }
   let duration = 0;
   const start = process.hrtime();
   try {
-    const proxyAxios = aiGetSettings().useSystemProxy ? await resolveSystemProxy(interpolatedUrl) : {};
-    response = await axios({
+    const settings = aiGetSettings();
+    const proxy = settings.useSystemProxy ? await resolveSystemProxy(interpolatedUrl) : null;
+    const res = await request(interpolatedUrl, {
       method: requestObj.method || 'GET',
-      url: interpolatedUrl,
       headers: requestHeaders,
-      data: bodyData,
-      responseType: 'arraybuffer', // always fetch as buffer to prevent corruption of images/binary
-      validateStatus: () => true, // Accept all response status codes
-      timeout: 15000, // 15s timeout
-      ...proxyAxios // route through the OS system proxy when enabled
+      body: bodyData,
+      timeoutMs: 15000, // 15s timeout
+      allowSelfSigned: !!settings.allowSelfSignedCerts, // tolerate self-signed certs in test requests
+      proxy // route through the OS system proxy when enabled
     });
+    // Always buffer to a Buffer (prevents corruption of images/binary).
+    response = { status: res.statusCode, statusText: res.statusText, headers: res.headers, data: await toArray(res.body) };
     const diff = process.hrtime(start);
     duration = Math.round((diff[0] * 1000) + (diff[1] / 1000000));
   } catch (err) {
@@ -869,6 +912,150 @@ function aiChatsDir() {
   return currentWorkspace ? pathModule.join(currentWorkspace, '.teamapi', 'chats') : null;
 }
 
+// ---- OAuth 2.0 token store (app-global, secrets kept out of the workspace) ----
+function oauthTokensPath() {
+  return pathModule.join(app.getPath('userData'), 'oauth-tokens.json');
+}
+function getOauthTokens() {
+  try {
+    if (fs.existsSync(oauthTokensPath())) {
+      const data = JSON.parse(fs.readFileSync(oauthTokensPath(), 'utf8'));
+      if (Array.isArray(data)) return data;            // legacy bare-array shape
+      if (Array.isArray(data.tokens)) return data.tokens;
+    }
+  } catch (e) {}
+  return [];
+}
+function saveOauthTokens(list) {
+  try { fs.writeFileSync(oauthTokensPath(), JSON.stringify({ tokens: list }, null, 2), 'utf8'); } catch (e) {}
+  return list;
+}
+function getOauthTokenById(id) {
+  return id ? (getOauthTokens().find(t => t.id === id) || null) : null;
+}
+
+// Basic auth header for confidential clients that prefer it over the body.
+function oauthClientAuthHeader(cfg) {
+  if (cfg && cfg.clientAuth === 'header' && cfg.clientId) {
+    return 'Basic ' + Buffer.from(`${cfg.clientId}:${cfg.clientSecret || ''}`).toString('base64');
+  }
+  return null;
+}
+
+// POST the token endpoint for client_credentials / password grants.
+async function exchangeToken(config) {
+  const params = new URLSearchParams();
+  params.append('grant_type', config.grantType === 'password' ? 'password' : 'client_credentials');
+  params.append('client_id', config.clientId || '');
+  if (config.grantType === 'password') {
+    params.append('username', config.username || '');
+    params.append('password', config.password || '');
+  }
+  if (config.scope) params.append('scope', config.scope);
+  if ((config.clientAuth || 'body') === 'body' && config.clientSecret) {
+    params.append('client_secret', config.clientSecret);
+  }
+  const headers = { 'Content-Type': 'application/x-www-form-urlencoded' };
+  const ah = oauthClientAuthHeader(config);
+  if (ah) headers['Authorization'] = ah;
+
+  const settings = aiGetSettings();
+  const res = await request(config.tokenUrl, {
+    method: 'POST', headers, body: params.toString(), timeoutMs: 15000,
+    allowSelfSigned: !!settings.allowSelfSignedCerts,
+    proxy: settings.useSystemProxy ? await resolveSystemProxy(config.tokenUrl) : null
+  });
+  const text = await toArray(res.body);
+  let data = null;
+  try { data = JSON.parse(text); } catch (e) { throw new Error(`Token endpoint returned non-JSON (${res.statusCode}): ${text.slice(0, 200)}`); }
+  if (res.statusCode >= 400 || !data.access_token) {
+    throw new Error(`Token endpoint ${res.statusCode}: ${text.slice(0, 300)}`);
+  }
+  return {
+    accessToken: data.access_token,
+    refreshToken: data.refresh_token || '',
+    tokenType: data.token_type || 'Bearer',
+    expiresAt: data.expires_in ? Date.now() + Number(data.expires_in) * 1000 : 0
+  };
+}
+
+// Refresh an access token using a refresh_token.
+async function oauthRefresh(token) {
+  const params = new URLSearchParams();
+  params.append('grant_type', 'refresh_token');
+  params.append('refresh_token', token.refreshToken || '');
+  params.append('client_id', token.clientId || '');
+  if ((token.clientAuth || 'body') === 'body' && token.clientSecret) {
+    params.append('client_secret', token.clientSecret);
+  }
+  const headers = { 'Content-Type': 'application/x-www-form-urlencoded' };
+  const ah = oauthClientAuthHeader(token);
+  if (ah) headers['Authorization'] = ah;
+
+  const settings = aiGetSettings();
+  const res = await request(token.tokenUrl, {
+    method: 'POST', headers, body: params.toString(), timeoutMs: 15000,
+    allowSelfSigned: !!settings.allowSelfSignedCerts,
+    proxy: settings.useSystemProxy ? await resolveSystemProxy(token.tokenUrl) : null
+  });
+  const text = await toArray(res.body);
+  let data = null;
+  try { data = JSON.parse(text); } catch (e) { throw new Error(`Token endpoint returned non-JSON (${res.statusCode}): ${text.slice(0, 200)}`); }
+  if (res.statusCode >= 400 || !data.access_token) {
+    throw new Error(`Token refresh ${res.statusCode}: ${text.slice(0, 300)}`);
+  }
+  return {
+    accessToken: data.access_token,
+    refreshToken: data.refresh_token || token.refreshToken || '',
+    tokenType: data.token_type || 'Bearer',
+    expiresAt: data.expires_in ? Date.now() + Number(data.expires_in) * 1000 : 0
+  };
+}
+
+// ---- OAuth 2.0 IPC ----
+ipcMain.handle('oauth:listTokens', async () => getOauthTokens());
+
+ipcMain.handle('oauth:saveToken', async (event, token) => {
+  const t = token || {};
+  if (!t.id) { t.id = uuidv4(); t.createdAt = Date.now(); }
+  t.updatedAt = Date.now();
+  const all = getOauthTokens();
+  const idx = all.findIndex(x => x.id === t.id);
+  if (idx >= 0) all[idx] = t; else all.push(t);
+  saveOauthTokens(all);
+  return t;
+});
+
+ipcMain.handle('oauth:deleteToken', async (event, id) => {
+  saveOauthTokens(getOauthTokens().filter(t => t.id !== id));
+  return true;
+});
+
+// Acquire a token (client_credentials / password): exchange then store, return it.
+ipcMain.handle('oauth:getToken', async (event, config) => {
+  const acquired = await exchangeToken(config);
+  const t = Object.assign({}, config, acquired);
+  if (!t.id) { t.id = uuidv4(); t.createdAt = Date.now(); }
+  t.updatedAt = Date.now();
+  const all = getOauthTokens();
+  const idx = all.findIndex(x => x.id === t.id);
+  if (idx >= 0) all[idx] = t; else all.push(t);
+  saveOauthTokens(all);
+  return t;
+});
+
+// Refresh a stored token by id, persist the new access token, return it.
+ipcMain.handle('oauth:refresh', async (event, payload) => {
+  const tok = getOauthTokenById(payload && payload.id);
+  if (!tok) throw new Error('Token not found');
+  const acquired = await oauthRefresh(tok);
+  Object.assign(tok, acquired);
+  const all = getOauthTokens();
+  const idx = all.findIndex(t => t.id === tok.id);
+  if (idx >= 0) { all[idx] = tok; saveOauthTokens(all); }
+  return tok;
+});
+
 // Static provider catalog (no secrets). Returned as an array for the renderer.
 ipcMain.handle('ai:providers:list', async () => Object.values(PROVIDERS));
 
@@ -890,14 +1077,30 @@ ipcMain.handle('theme:set', async (event, theme) => {
   }
 });
 
+// Return the userData directory so the Settings UI can show where app data lives.
+ipcMain.handle('app:getDataPath', () => app.getPath('userData'));
+
+// Wipe app data (AI settings, cache, localStorage/cookies) for a clean state,
+// then relaunch. Equivalent to a fresh install without leftover "imported" data.
+ipcMain.handle('app:resetData', async () => {
+  try {
+    try { fs.unlinkSync(aiSettingsPath()); } catch (e) {}
+    try { await session.defaultSession.clearCache(); } catch (e) {}
+    try { await session.defaultSession.clearStorageData({}); } catch (e) {}
+  } catch (e) {}
+  app.relaunch();
+  app.exit(0);
+  return true;
+});
+
 // List models for a provider using the saved baseUrl + apiKey.
 ipcMain.handle('ai:models:list', async (event, provider) => {
   const settings = aiGetSettings();
   const ps = (settings.providers && settings.providers[provider]) || {};
   const def = PROVIDERS[provider] || {};
   const baseUrl = ps.baseUrl || def.defaultBaseUrl || '';
-  const proxyAxios = settings.useSystemProxy ? await resolveSystemProxy(baseUrl) : {};
-  return await listModels(provider, ps.baseUrl, ps.apiKey, !!settings.allowSelfSignedCerts, proxyAxios);
+  const proxy = settings.useSystemProxy ? await resolveSystemProxy(baseUrl) : null;
+  return await listModels(provider, ps.baseUrl, ps.apiKey, !!settings.allowSelfSignedCerts, proxy);
 });
 
 // Workspace-scoped chats (mirror collections CRUD pattern).
@@ -953,11 +1156,11 @@ ipcMain.handle('ai:chat', async (event, args) => {
 
   try {
     const aiBaseUrl = ps.baseUrl || def.defaultBaseUrl || '';
-    const proxyAxios = settings.useSystemProxy ? await resolveSystemProxy(aiBaseUrl) : {};
+    const proxy = settings.useSystemProxy ? await resolveSystemProxy(aiBaseUrl) : null;
     const fullText = await streamChat({
       provider, baseUrl: aiBaseUrl, apiKey: ps.apiKey, model, messages, system, temperature, maxTokens,
       allowSelfSigned: !!settings.allowSelfSignedCerts,
-      proxyAxios
+      proxy
     }, (text) => {
       if (mainWindow && requestId) mainWindow.webContents.send('ai:stream:chunk', { requestId, text });
     }, controller.signal);

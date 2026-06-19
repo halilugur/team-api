@@ -1,16 +1,30 @@
 // AI provider adapter for TeamAPI chat.
 // Maps one unified request to OpenAI / Claude (Anthropic) / Gemini (Google) / Ollama
 // and streams text deltas back via callbacks. All HTTP runs in the main process
-// (no CORS). Uses axios with responseType: 'stream'.
-const axios = require('axios');
-const https = require('https');
+// (no CORS) via the built-in http-client (no axios).
+const { request } = require('./http-client');
 
-// Reused https.Agent for endpoints whose certificate chain is self-signed or
-// otherwise untrusted (common for local LLM servers / custom proxies). Enabled
-// per-request via opts.allowSelfSigned (driven by the AI settings toggle).
-const insecureAgent = new https.Agent({ rejectUnauthorized: false });
-function tlsOpts(opts) {
-  return (opts && opts.allowSelfSigned) ? { httpsAgent: insecureAgent } : {};
+// Actionable error for the "fetch models" button (best-effort feature).
+function modelsError(label, status, url) {
+  if (status === 401 || status === 403) {
+    return new Error(`${label}: auth failed (${status}) — check your API key`);
+  }
+  if (status === 404 || status === 405) {
+    return new Error(`${label}: can't list models (${status} at ${url}). Ensure Base URL ends with /v1, or type the model name manually.`);
+  }
+  return new Error(`${label} ${status} at ${url}`);
+}
+
+// Extract model IDs from the varied shapes OpenAI-compatible servers return:
+// { data: [{id}] } | { models: [{id}|{name}|str] } | [str|{id}].
+function extractModelIds(data) {
+  if (!data) return [];
+  const pick = (m) => (typeof m === 'string' ? m : (m && (m.id || m.name)));
+  let arr = null;
+  if (Array.isArray(data)) arr = data;
+  else if (Array.isArray(data.data)) arr = data.data;
+  else if (Array.isArray(data.models)) arr = data.models;
+  return (arr || []).map(pick).filter(Boolean);
 }
 
 // Static provider catalog (no secrets). Returned to the renderer via ai:providers:list.
@@ -165,11 +179,12 @@ async function streamOpenAI(opts, handlers) {
   if (typeof opts.temperature === 'number') body.temperature = opts.temperature;
   const headers = { 'Content-Type': 'application/json' };
   if (opts.apiKey) headers.Authorization = `Bearer ${opts.apiKey}`; // optional for OpenAI-Compatible local servers
-  const res = await axios.post(`${baseUrl}/chat/completions`, body, {
-    headers, responseType: 'stream', validateStatus: () => true, signal: opts.signal, timeout: 0, ...tlsOpts(opts), ...opts.proxyAxios
+  const res = await request(`${baseUrl}/chat/completions`, {
+    method: 'POST', headers, body: JSON.stringify(body), signal: opts.signal,
+    allowSelfSigned: opts.allowSelfSigned, proxy: opts.proxy
   });
-  if (res.status >= 400) throw new Error(`OpenAI ${res.status}: ${(await readStream(res.data)).slice(0, 500)}`);
-  consumeSSE(res.data, handleOpenAIData, handlers);
+  if (res.statusCode >= 400) throw new Error(`OpenAI ${res.statusCode}: ${(await readStream(res.body)).slice(0, 500)}`);
+  consumeSSE(res.body, handleOpenAIData, handlers);
 }
 
 async function streamClaude(opts, handlers) {
@@ -182,12 +197,13 @@ async function streamClaude(opts, handlers) {
   };
   if (opts.system) body.system = opts.system;
   // NOTE: temperature/top_p/top_k intentionally omitted — rejected (400) on Claude 4.6+.
-  const res = await axios.post(`${baseUrl}/v1/messages`, body, {
+  const res = await request(`${baseUrl}/v1/messages`, {
+    method: 'POST',
     headers: { 'x-api-key': opts.apiKey, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
-    responseType: 'stream', validateStatus: () => true, signal: opts.signal, timeout: 0, ...tlsOpts(opts), ...opts.proxyAxios
+    body: JSON.stringify(body), signal: opts.signal, allowSelfSigned: opts.allowSelfSigned, proxy: opts.proxy
   });
-  if (res.status >= 400) throw new Error(`Claude ${res.status}: ${(await readStream(res.data)).slice(0, 500)}`);
-  consumeSSE(res.data, handleClaudeData, handlers);
+  if (res.statusCode >= 400) throw new Error(`Claude ${res.statusCode}: ${(await readStream(res.body)).slice(0, 500)}`);
+  consumeSSE(res.body, handleClaudeData, handlers);
 }
 
 async function streamGemini(opts, handlers) {
@@ -203,12 +219,12 @@ async function streamGemini(opts, handlers) {
   if (opts.maxTokens) body.generationConfig.maxOutputTokens = opts.maxTokens;
   if (typeof opts.temperature === 'number') body.generationConfig.temperature = opts.temperature;
   const url = `${baseUrl}/models/${encodeURIComponent(opts.model)}:streamGenerateContent?alt=sse&key=${encodeURIComponent(opts.apiKey)}`;
-  const res = await axios.post(url, body, {
-    headers: { 'Content-Type': 'application/json' },
-    responseType: 'stream', validateStatus: () => true, signal: opts.signal, timeout: 0, ...tlsOpts(opts), ...opts.proxyAxios
+  const res = await request(url, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body), signal: opts.signal, allowSelfSigned: opts.allowSelfSigned, proxy: opts.proxy
   });
-  if (res.status >= 400) throw new Error(`Gemini ${res.status}: ${(await readStream(res.data)).slice(0, 500)}`);
-  consumeSSE(res.data, handleGeminiData, handlers);
+  if (res.statusCode >= 400) throw new Error(`Gemini ${res.statusCode}: ${(await readStream(res.body)).slice(0, 500)}`);
+  consumeSSE(res.body, handleGeminiData, handlers);
 }
 
 async function streamOllama(opts, handlers) {
@@ -217,12 +233,12 @@ async function streamOllama(opts, handlers) {
   if (opts.system) messages.push({ role: 'system', content: opts.system });
   for (const m of opts.messages) messages.push({ role: m.role, content: m.content });
   const body = { model: opts.model, messages, stream: true };
-  const res = await axios.post(`${baseUrl}/api/chat`, body, {
-    headers: { 'Content-Type': 'application/json' },
-    responseType: 'stream', validateStatus: () => true, signal: opts.signal, timeout: 0, ...tlsOpts(opts), ...opts.proxyAxios
+  const res = await request(`${baseUrl}/api/chat`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body), signal: opts.signal, allowSelfSigned: opts.allowSelfSigned, proxy: opts.proxy
   });
-  if (res.status >= 400) throw new Error(`Ollama ${res.status}: ${(await readStream(res.data)).slice(0, 500)}`);
-  consumeNDJSON(res.data, handleOllamaLine, handlers);
+  if (res.statusCode >= 400) throw new Error(`Ollama ${res.statusCode}: ${(await readStream(res.body)).slice(0, 500)}`);
+  consumeNDJSON(res.body, handleOllamaLine, handlers);
 }
 
 // ---- unified entry ----
@@ -249,41 +265,60 @@ async function streamChat(opts, onDelta, signal) {
       }
     };
     run().catch((err) => {
-      if (axios.isCancel(err) || (err && err.code === 'ERR_CANCELED')) resolve(full); // abort → keep partial
+      // A user-initiated abort resolves with whatever was streamed so far.
+      const aborted = (signal && signal.aborted) || (err && (err.name === 'AbortError' || err.message === 'aborted'));
+      if (aborted) resolve(full);
       else reject(err);
     });
   });
 }
 
 // Fetch the list of available models for a provider (best-effort; static catalog otherwise).
-async function listModels(provider, baseUrl, apiKey, allowSelfSigned, proxyAxios) {
+async function getJson(url, { headers, allowSelfSigned, proxy, timeoutMs = 8000 }) {
+  const res = await request(url, { method: 'GET', headers, timeoutMs, allowSelfSigned, proxy });
+  const text = await readStream(res.body);
+  let data = null;
+  try { data = text ? JSON.parse(text) : null; } catch (e) { data = null; }
+  return { status: res.statusCode, data };
+}
+
+async function listModels(provider, baseUrl, apiKey, allowSelfSigned, proxy) {
   const driver = (PROVIDERS[provider] && PROVIDERS[provider].driver) || provider;
-  const tls = tlsOpts({ allowSelfSigned });
   if (driver === 'ollama') {
     const b = trimUrl(baseUrl) || PROVIDERS.ollama.defaultBaseUrl;
-    const res = await axios.get(`${b}/api/tags`, { timeout: 8000, validateStatus: () => true, ...tls, ...proxyAxios });
-    if (res.status >= 400) throw new Error(`Ollama ${res.status}`);
+    const res = await getJson(`${b}/api/tags`, { allowSelfSigned, proxy });
+    if (res.status >= 400) throw modelsError('Ollama', res.status, `${b}/api/tags`);
     return (res.data && res.data.models || []).map(m => m.name);
   }
   if (driver === 'openai') {
     const b = trimUrl(baseUrl);
-    if (!b) throw new Error('Set a Base URL first');
+    if (!b) throw new Error('Set a Base URL first (it should usually end with /v1)');
     const headers = {};
     if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
-    const res = await axios.get(`${b}/models`, { headers, timeout: 8000, validateStatus: () => true, ...tls, ...proxyAxios });
-    if (res.status >= 400) throw new Error(`OpenAI ${res.status}`);
-    return (res.data && res.data.data || []).map(m => m.id);
+    // Try common model-list endpoints so discovery works whether or not the
+    // Base URL already includes /v1 (e.g. /models then /v1/models).
+    const urls = [`${b}/models`];
+    if (!/\/v\d+$/i.test(b)) urls.push(`${b}/v1/models`);
+    let lastErr;
+    for (const url of urls) {
+      try {
+        const res = await getJson(url, { headers, allowSelfSigned, proxy });
+        if (res.status < 400) return extractModelIds(res.data);
+        lastErr = modelsError('OpenAI', res.status, url);
+      } catch (e) { lastErr = e; }
+    }
+    throw lastErr || new Error('Could not list models — check the Base URL');
   }
   if (driver === 'gemini') {
     const b = trimUrl(baseUrl) || PROVIDERS.gemini.defaultBaseUrl;
-    const res = await axios.get(`${b}/models?key=${encodeURIComponent(apiKey)}&pageSize=200`, { timeout: 8000, validateStatus: () => true, ...tls, ...proxyAxios });
-    if (res.status >= 400) throw new Error(`Gemini ${res.status}`);
+    const res = await getJson(`${b}/models?key=${encodeURIComponent(apiKey)}&pageSize=200`, { allowSelfSigned, proxy });
+    if (res.status >= 400) throw modelsError('Gemini', res.status, `${b}/models`);
     return (res.data && res.data.models || []).map(m => (m.name || '').replace(/^models\//, ''));
   }
   if (driver === 'claude') {
     const b = trimUrl(baseUrl) || PROVIDERS.claude.defaultBaseUrl;
-    const res = await axios.get(`${b}/v1/models`, { headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' }, timeout: 8000, validateStatus: () => true, ...tls, ...proxyAxios });
-    if (res.status >= 400) throw new Error(`Claude ${res.status}`);
+    const res = await getJson(`${b}/v1/models`, { headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' }, allowSelfSigned, proxy });
+    if (res.status >= 400) throw modelsError('Claude', res.status, `${b}/v1/models`);
     return (res.data && res.data.data || []).map(m => m.id);
   }
   return [];

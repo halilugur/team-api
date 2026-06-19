@@ -253,6 +253,7 @@
                 <option value="bearer">Bearer Token</option>
                 <option value="basic">Basic Auth</option>
                 <option value="apikey">API Key</option>
+                <option value="oauth2">OAuth 2.0</option>
               </select>
             </div>
             <div id="authFields">
@@ -286,6 +287,87 @@
                 <div class="form-group">
                   <label for="authApiKeyHeader">Header Name</label>
                   <input type="text" class="form-control" id="authApiKeyHeader" placeholder="X-API-Key">
+                </div>
+              </div>
+
+              <!-- OAuth 2.0 (inline, Postman-style) -->
+              <div id="authOauthFields" class="auth-fields" style="display: none; margin-top: 10px; flex-direction: column; gap: 12px;">
+                <div style="font-size: 11px; color: var(--text-muted); line-height: 1.5;">
+                  The authorization data is generated from the selected token and sent as a request header.
+                  Expired tokens auto-refresh on send.
+                </div>
+
+                <div class="oauth-columns">
+                  <!-- Left: current token / dropdown -->
+                  <div class="oauth-block oauth-col-left">
+                    <div class="oauth-block-title">Current Token</div>
+                    <div class="form-group" style="margin: 0;">
+                      <label for="oauthTokenSelect">Available Tokens</label>
+                      <div class="oauth-select-row">
+                        <select class="form-control" id="oauthTokenSelect">
+                          <option value="">— No token —</option>
+                        </select>
+                        <button type="button" class="oauth-icon-btn" id="btnOauthDelete" title="Delete selected token" disabled>
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path></svg>
+                        </button>
+                      </div>
+                    </div>
+                    <div class="form-group" style="margin: 0;">
+                      <label for="oauthHeaderPrefix">Header Prefix</label>
+                      <input type="text" class="form-control mono" id="oauthHeaderPrefix" value="Bearer" disabled>
+                    </div>
+                    <div class="oauth-status" id="oauthTokenStatus">No token selected</div>
+                  </div>
+
+                  <!-- Right: configure new token -->
+                  <div class="oauth-block oauth-col-right">
+                    <div class="oauth-block-title">Configure New Token</div>
+                    <div class="form-group" style="margin: 0;">
+                      <label for="oauthName">Token Name</label>
+                      <input type="text" class="form-control" id="oauthName" placeholder="My API">
+                    </div>
+                    <div class="form-group" style="margin: 0;">
+                      <label for="oauthGrant">Grant type</label>
+                      <select class="form-control" id="oauthGrant">
+                        <option value="client_credentials">Client Credentials</option>
+                        <option value="password">Password (ROPC)</option>
+                      </select>
+                    </div>
+                    <div class="form-group" style="margin: 0;">
+                      <label for="oauthTokenUrl">Access Token URL</label>
+                      <input type="text" class="form-control mono" id="oauthTokenUrl" placeholder="https://provider.com/oauth/token">
+                    </div>
+                    <div class="form-group" style="margin: 0;">
+                      <label for="oauthClientId">Client ID</label>
+                      <input type="text" class="form-control mono" id="oauthClientId">
+                    </div>
+                    <div class="form-group" style="margin: 0;">
+                      <label for="oauthClientSecret">Client Secret</label>
+                      <input type="password" class="form-control mono" id="oauthClientSecret" placeholder="(optional)">
+                    </div>
+                    <div class="oauth-cred-fields" id="oauthPasswordFields" style="display: none; flex-direction: column; gap: 12px;">
+                      <div class="form-group" style="margin: 0;">
+                        <label for="oauthUsername">Username</label>
+                        <input type="text" class="form-control mono" id="oauthUsername">
+                      </div>
+                      <div class="form-group" style="margin: 0;">
+                        <label for="oauthPassword">Password</label>
+                        <input type="password" class="form-control mono" id="oauthPassword">
+                      </div>
+                    </div>
+                    <div class="form-group" style="margin: 0;">
+                      <label for="oauthScope">Scope</label>
+                      <input type="text" class="form-control mono" id="oauthScope" placeholder="e.g. read:org">
+                    </div>
+                    <div class="form-group" style="margin: 0;">
+                      <label for="oauthClientAuth">Client Authentication</label>
+                      <select class="form-control" id="oauthClientAuth">
+                        <option value="body">Send client credentials in body</option>
+                        <option value="header">Send as Basic Auth header</option>
+                      </select>
+                    </div>
+                    <button type="button" class="btn-primary" id="btnOauthGetToken" style="align-self: flex-start; margin-top: 4px;">Get New Access Token</button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -701,15 +783,17 @@
 
   <!-- Settings Modal (Appearance + AI Provider). Keeps the historical
        modalAISettings id and inner IDs so ai-chat.js wiring stays intact. -->
-  <dialog id="modalAISettings" style="max-width: 560px; width: 90%;">
+  <dialog id="modalAISettings" style="max-width: 600px; width: 90%;">
     <div class="dialog-header">Settings</div>
 
-    <!-- Category tabs -->
-    <div class="settings-tabs">
+    <div class="settings-layout">
+    <!-- Category menu (left) -->
+    <nav class="settings-tabs">
       <button type="button" class="settings-tab active" data-settings-tab="appearance">Appearance</button>
       <button type="button" class="settings-tab" data-settings-tab="ai">AI Provider</button>
       <button type="button" class="settings-tab" data-settings-tab="proxy">Proxy</button>
-    </div>
+      <button type="button" class="settings-tab" data-settings-tab="advanced">Advanced</button>
+    </nav>
 
     <div class="dialog-body settings-body">
 
@@ -767,12 +851,35 @@
         </div>
       </div>
 
+      <!-- Advanced -->
+      <div class="settings-pane" data-settings-pane="advanced">
+        <div class="settings-section">
+          <div class="settings-section-title">App data location</div>
+          <div class="settings-hint" id="userDataPath">Loading…</div>
+          <div class="settings-hint">
+            This folder holds your AI settings, theme, and cached data. It is kept after uninstall —
+            delete it manually if the app won't start.
+          </div>
+        </div>
+        <div class="settings-section">
+          <div class="settings-section-title">Reset</div>
+          <button type="button" class="btn-danger" id="btnResetAppData">Reset app data…</button>
+          <div class="settings-hint">
+            Clears AI settings, theme, cache and stored UI state, then restarts the app — equivalent
+            to a clean reinstall without leftover data.
+          </div>
+        </div>
+      </div>
+
+    </div>
     </div>
     <div class="dialog-footer">
       <button class="btn-secondary" id="btnCancelAISettings">Close</button>
       <button class="btn-primary" id="btnSaveAISettings">Save</button>
     </div>
   </dialog>
+
+  <!-- (OAuth 2.0 config is inline beside the dropdown in the Auth tab — see #authOauthFields) -->
 
   <!-- Global Autocomplete Popover -->
   <div id="autocompleteSuggestions" class="autocomplete-suggestions"></div>

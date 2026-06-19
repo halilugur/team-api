@@ -34,7 +34,7 @@
 
   /* Premium cubic bezier transition curve */
   --ease-spring: cubic-bezier(0.16, 1, 0.3, 1);
-  --transition-speed: 0.4s;
+  --transition-speed: 0.15s;
 }
 
 /* Light theme — applied via <html data-theme="light"> (see theme-init.js / app.js).
@@ -100,10 +100,33 @@
   margin: 0;
   padding: 0;
   user-select: none;
-  transition: background-color var(--transition-speed) var(--ease-spring),
-    border-color var(--transition-speed) var(--ease-spring),
-    opacity var(--transition-speed) var(--ease-spring),
-    transform var(--transition-speed) var(--ease-spring);
+}
+
+/* While switching theme we briefly disable ALL transitions so the whole UI
+   snaps at once instead of cross-fading element-by-element (janky/staggered). */
+.no-transition,
+.no-transition * {
+  transition: none !important;
+}
+
+/* Transitions scoped to interactive elements only (a global * transition is a
+   major perf anti-pattern — it forces style/paint work across the whole DOM). */
+button,
+input,
+select,
+textarea,
+.sidebar-btn,
+.request-tab,
+.tab-btn,
+.theme-opt,
+.settings-tab,
+.collection-item,
+.folder-item,
+.request-item,
+.chat-icon-btn,
+.btn-primary,
+.btn-secondary {
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
 
 html, body {
@@ -345,7 +368,6 @@ body.is-resizing .chat-panel {
   flex-direction: column;
   flex-shrink: 0;
   overflow: hidden;
-  backdrop-filter: blur(16px);
   transition: width 0.2s cubic-bezier(0.4, 0, 0.2, 1), border-right-color 0.2s;
 }
 
@@ -925,6 +947,11 @@ body.is-resizing .chat-panel {
   max-width: 420px;
 }
 
+/* OAuth 2.0 needs the full width for its dropdown + form row */
+.auth-container.auth-wide {
+  max-width: none;
+}
+
 .form-group {
   display: flex;
   flex-direction: column;
@@ -971,7 +998,6 @@ body.is-resizing .chat-panel {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  backdrop-filter: blur(16px);
   min-height: 150px;
   transition: flex 0.2s cubic-bezier(0.4, 0, 0.2, 1), border-top-color 0.2s;
 }
@@ -1215,6 +1241,24 @@ dialog::backdrop {
   backdrop-filter: blur(6px);
 }
 
+/* OAuth 2.0 — dropdown (left) beside the configure form (right) */
+.oauth-columns {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  flex-wrap: nowrap;
+}
+
+.oauth-col-left {
+  width: 280px;
+  flex-shrink: 0;
+}
+
+.oauth-col-right {
+  flex: 1;
+  min-width: 0;
+}
+
 .dialog-header {
   font-size: 16px;
   font-weight: 700;
@@ -1264,6 +1308,131 @@ dialog::backdrop {
   color: var(--text-primary);
 }
 
+.btn-danger {
+  background-color: var(--accent-red);
+  color: #fff;
+  padding: 8px 16px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 600;
+  align-self: flex-start;
+}
+
+.btn-danger:hover {
+  filter: brightness(1.1);
+}
+
+/* OAuth 2.0 */
+.oauth-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.oauth-status {
+  font-size: 11px;
+  color: var(--text-muted);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.oauth-status::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-dim);
+}
+
+.oauth-status.valid::before { background: var(--accent-green); }
+.oauth-status.expired::before { background: var(--accent-red); }
+
+.oauth-token-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.oauth-token-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-tertiary);
+  font-size: 12px;
+}
+
+.oauth-token-row .name { flex: 1; min-width: 0; font-weight: 600; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.oauth-token-row .meta { font-size: 10px; color: var(--text-dim); }
+.oauth-token-row .actions { display: flex; gap: 6px; flex-shrink: 0; }
+.oauth-token-row .actions button {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  border-radius: 4px;
+  padding: 3px 8px;
+  cursor: pointer;
+  font-size: 11px;
+}
+.oauth-token-row .actions button:hover { background: var(--bg-hover); color: var(--text-primary); }
+
+/* OAuth 2.0 inline panel (Current Token / Configure New Token) */
+.oauth-block {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-tertiary);
+}
+
+.oauth-block-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.oauth-select-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.oauth-select-row .form-control { flex: 1; }
+
+.oauth-icon-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  border-radius: 6px;
+  padding: 7px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.oauth-icon-btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--accent-red);
+}
+
+.oauth-icon-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 /* Settings dialog sections + theme segmented control */
 .settings-section {
   display: flex;
@@ -1310,35 +1479,51 @@ dialog::backdrop {
 }
 
 /* Category tabs */
+/* Left category menu + content layout */
+.settings-layout {
+  display: flex;
+  align-items: stretch;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
 .settings-tabs {
   display: flex;
-  gap: 4px;
-  margin-bottom: 16px;
-  border-bottom: 1px solid var(--border);
+  flex-direction: column;
+  gap: 2px;
+  width: 140px;
+  flex-shrink: 0;
+  padding: 4px;
+  border-right: 1px solid var(--border);
 }
 
 .settings-tab {
-  padding: 8px 14px;
+  padding: 8px 12px;
   font-size: 12px;
   font-weight: 600;
   color: var(--text-muted);
   border: none;
-  border-bottom: 2px solid transparent;
-  margin-bottom: -1px;
+  border-left: 2px solid transparent;
+  border-radius: 6px;
+  text-align: left;
   cursor: pointer;
 }
 
 .settings-tab:hover {
   color: var(--text-primary);
+  background: var(--bg-hover);
 }
 
 .settings-tab.active {
   color: var(--text-primary);
-  border-bottom-color: var(--accent-blue);
+  background: var(--bg-hover);
+  border-left-color: var(--accent-blue);
 }
 
 .settings-body {
-  min-height: 160px;
+  flex: 1;
+  min-width: 0;
+  min-height: 200px;
 }
 
 .settings-pane {
@@ -2290,7 +2475,6 @@ mark.search-match.current {
   flex-direction: column;
   flex-shrink: 0;
   overflow: hidden;
-  backdrop-filter: blur(16px);
   transition: width 0.2s cubic-bezier(0.4, 0, 0.2, 1), border-left-color 0.2s;
 }
 

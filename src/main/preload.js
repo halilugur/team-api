@@ -78,5 +78,18 @@ contextBridge.exposeInMainWorld('teamapi', {
   // title-bar overlay (Windows/Linux) so it matches the chosen theme.
   theme: {
     set: (theme) => ipcRenderer.invoke('theme:set', theme)
+  },
+  // App — userData path + full data reset (clean-reinstall equivalent).
+  app: {
+    getDataPath: () => ipcRenderer.invoke('app:getDataPath'),
+    resetData: () => ipcRenderer.invoke('app:resetData')
+  },
+  // OAuth 2.0 — shared token list (Client Credentials / Password grants).
+  oauth: {
+    listTokens: () => ipcRenderer.invoke('oauth:listTokens'),
+    saveToken: (token) => ipcRenderer.invoke('oauth:saveToken', token),
+    deleteToken: (id) => ipcRenderer.invoke('oauth:deleteToken', id),
+    getToken: (config) => ipcRenderer.invoke('oauth:getToken', config),
+    refresh: (payload) => ipcRenderer.invoke('oauth:refresh', payload)
   }
 });
