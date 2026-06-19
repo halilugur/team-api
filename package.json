@@ -17,7 +17,7 @@
   },
   "devDependencies": {
     "electron": "^42.4.1",
-    "electron-builder": "^26.15.4"
+    "electron-builder": "^26.15.5"
   },
   "build": {
     "appId": "com.teamapi.app",
