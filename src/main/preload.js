@@ -45,6 +45,21 @@ contextBridge.exposeInMainWorld('teamapi', {
   request: {
     execute: (args) => ipcRenderer.invoke('request:execute', args)
   },
+  // Open additional app windows (TeamFolder file manager).
+  windows: {
+    openFileManager: () => ipcRenderer.invoke('window:openFileManager')
+  },
+  // TeamFolder — workspace file/folder management.
+  files: {
+    getWorkspace: () => ipcRenderer.invoke('files:getWorkspace'),
+    listTree: (dirPath) => ipcRenderer.invoke('files:listTree', dirPath),
+    create: (args) => ipcRenderer.invoke('files:create', args),
+    delete: (args) => ipcRenderer.invoke('files:delete', args),
+    rename: (args) => ipcRenderer.invoke('files:rename', args),
+    read: (args) => ipcRenderer.invoke('files:read', args),
+    write: (args) => ipcRenderer.invoke('files:write', args),
+    openExternal: (args) => ipcRenderer.invoke('files:openExternal', args)
+  },
   ai: {
     providers: () => ipcRenderer.invoke('ai:providers:list'),
     getSettings: () => ipcRenderer.invoke('ai:settings:get'),

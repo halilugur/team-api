@@ -2903,3 +2903,268 @@ mark.search-match.current {
   color: var(--text-primary);
   font-weight: 600;
 }
+
+/* ===========================================================================
+   TeamFolder — file manager window (scoped .fm-* classes)
+   Reuses theme CSS variables so it follows the active light/dark theme.
+   =========================================================================== */
+
+.fm-body {
+  height: 100vh;
+  margin: 0;
+  overflow: hidden;
+}
+
+.fm-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  color: var(--text-muted);
+  padding: 24px;
+}
+
+.fm-app {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* Toolbar */
+.fm-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
+}
+
+.fm-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 9px;
+  font-size: 12px;
+  font-family: inherit;
+  color: var(--text-muted);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 5px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.fm-btn svg { flex-shrink: 0; }
+
+.fm-btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.fm-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.fm-btn-sm { padding: 4px 8px; font-size: 11px; }
+
+.fm-btn-primary {
+  background: var(--accent-blue);
+  border-color: var(--accent-blue);
+  color: #fff;
+}
+.fm-btn-primary:hover:not(:disabled) {
+  filter: brightness(1.1);
+  color: #fff;
+}
+
+.fm-btn-danger { color: var(--accent-red, #ef4444); }
+.fm-btn-danger:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.12);
+  color: var(--accent-red, #ef4444);
+}
+
+.fm-breadcrumb {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 50%;
+}
+
+/* Split body */
+.fm-split {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+.fm-tree-pane {
+  width: 320px;
+  min-width: 180px;
+  max-width: 50%;
+  border-right: 1px solid var(--border-color);
+  overflow: auto;
+  background: var(--bg-primary);
+}
+
+.fm-tree {
+  padding: 6px 0;
+  user-select: none;
+}
+
+.fm-node {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 12.5px;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.fm-node:hover { background: var(--bg-hover); color: var(--text-primary); }
+
+.fm-node.fm-selected {
+  background: var(--accent-blue);
+  color: #fff;
+}
+
+.fm-node.fm-selected .fm-twisty,
+.fm-node.fm-selected .fm-ic { color: #fff; }
+
+.fm-node-empty {
+  cursor: default;
+  font-style: italic;
+  opacity: 0.6;
+}
+.fm-node-empty:hover { background: transparent; color: var(--text-muted); }
+
+.fm-ic { flex-shrink: 0; color: var(--text-dim); }
+.fm-node:hover .fm-ic { color: var(--text-muted); }
+
+.fm-twisty {
+  flex-shrink: 0;
+  color: var(--text-dim);
+  transition: transform 0.15s ease;
+}
+.fm-twisty-open { transform: rotate(90deg); }
+.fm-twisty-spacer { width: 10px; flex-shrink: 0; }
+
+.fm-node-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Editor pane */
+.fm-editor-pane {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--bg-secondary);
+}
+
+.fm-editor-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
+}
+
+.fm-editor-path {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-right: auto;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fm-editor {
+  flex: 1;
+  width: 100%;
+  border: none;
+  outline: none;
+  resize: none;
+  padding: 12px 14px;
+  font-family: 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+  font-size: 12.5px;
+  line-height: 1.55;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  tab-size: 2;
+}
+
+.fm-editor:disabled { opacity: 0.6; cursor: default; }
+
+.fm-editor-footer {
+  padding: 4px 14px;
+  font-size: 11px;
+  color: var(--text-muted);
+  border-top: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  flex-shrink: 0;
+  min-height: 22px;
+}
+
+/* Prompt modal */
+.fm-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+}
+
+.fm-modal {
+  width: 360px;
+  max-width: 90vw;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 16px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.fm-modal-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.fm-modal-input {
+  width: 100%;
+  padding: 8px 10px;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 5px;
+  outline: none;
+  box-sizing: border-box;
+}
+.fm-modal-input:focus { border-color: var(--accent-blue); }
+
+.fm-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}

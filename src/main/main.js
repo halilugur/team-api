@@ -27,6 +27,7 @@ async function resolveSystemProxy(url) {
 }
 
 let mainWindow = null;
+let fileManagerWindow = null;
 let currentWorkspace = null;
 let activeWatchers = [];
 
@@ -214,6 +215,73 @@ function createWindow() {
 
   mainWindow.on('closed', () => {
     mainWindow = null;
+  });
+}
+
+// Separate window for browsing/managing the workspace folder (TeamFolder).
+// The app's first genuinely independent BrowserWindow; mirrors createWindow()'s
+// security posture (same preload, contextIsolation, no nodeIntegration).
+function createFileManagerWindow() {
+  if (fileManagerWindow) {
+    if (fileManagerWindow.isMinimized()) fileManagerWindow.restore();
+    fileManagerWindow.focus();
+    return;
+  }
+
+  const options = {
+    width: 1000,
+    height: 680,
+    minWidth: 640,
+    minHeight: 480,
+    resizable: true,
+    backgroundColor: '#0f1117',
+    show: false,
+    title: 'TeamFolder',
+    autoHideMenuBar: true,
+    titleBarStyle: 'hidden',
+    trafficLightPosition: { x: 12, y: 12 },
+    webPreferences: {
+      preload: pathModule.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  };
+
+  if (process.platform !== 'darwin') {
+    options.titleBarOverlay = {
+      color: '#0b0e14',
+      symbolColor: '#94a3b8',
+      height: 40
+    };
+  }
+
+  fileManagerWindow = new BrowserWindow(options);
+
+  fileManagerWindow.once('ready-to-show', async () => {
+    if (process.platform !== 'darwin') {
+      try {
+        const theme = await fileManagerWindow.webContents.executeJavaScript(
+          "(document.documentElement.dataset.theme || (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'))"
+        );
+        const light = theme === 'light';
+        fileManagerWindow.setTitleBarOverlay({
+          color: light ? '#ffffff' : '#0b0e14',
+          symbolColor: light ? '#475569' : '#94a3b8'
+        });
+      } catch (e) { /* overlay not supported — ignore */ }
+    }
+    fileManagerWindow.show();
+  });
+
+  fileManagerWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//i.test(url)) shell.openExternal(url);
+    return { action: 'deny' };
+  });
+
+  fileManagerWindow.loadFile(pathModule.join(__dirname, '../renderer/file-manager.html'));
+
+  fileManagerWindow.on('closed', () => {
+    fileManagerWindow = null;
   });
 }
 
@@ -518,6 +586,161 @@ ipcMain.handle('environments:delete', async (event, id) => {
   if (fs.existsSync(filePath)) {
     fs.unlinkSync(filePath);
   }
+});
+
+// ---------------------------------------------------------------------------
+// TeamFolder — file/folder management for the workspace (separate window)
+// ---------------------------------------------------------------------------
+
+// Resolve an arbitrary renderer-supplied path to an absolute path that is
+// guaranteed to live INSIDE the current workspace. Throws if it would escape
+// (path traversal) or target the internal .teamapi app-data folder. Every
+// files:* handler routes through this so the renderer can never touch anything
+// outside the workspace.
+function wsPath(input) {
+  if (!currentWorkspace) throw new Error('No workspace selected');
+  const root = pathModule.resolve(currentWorkspace);
+  const resolved = pathModule.resolve(root, input || '');
+  const rel = pathModule.relative(root, resolved);
+  // Empty rel === root itself; otherwise the first segment must not be '..'
+  // (path.relative yields '..' segments when escaping the root).
+  if (rel.startsWith('..') || pathModule.isAbsolute(rel)) {
+    throw new Error('Path is outside the workspace');
+  }
+  // Block the internal app-data folder (.teamapi) anywhere in the chain.
+  if (rel.split(pathModule.sep).some(seg => seg === '.teamapi')) {
+    throw new Error('Cannot access the internal app-data folder');
+  }
+  return resolved;
+}
+
+// Build a recursive tree of a directory, skipping .teamapi and capping depth.
+function buildFileTree(dirPath, depth) {
+  const MAX_DEPTH = 8;
+  let entries = [];
+  try {
+    entries = fs.readdirSync(dirPath, { withFileTypes: true });
+  } catch (e) {
+    return [];
+  }
+  const nodes = [];
+  for (const entry of entries) {
+    if (entry.name === '.teamapi' || entry.name === '.DS_Store') continue;
+    const fullPath = pathModule.join(dirPath, entry.name);
+    let size = 0;
+    try { if (entry.isFile()) size = fs.statSync(fullPath).size; } catch (e) {}
+    const node = {
+      name: entry.name,
+      path: fullPath,
+      type: entry.isDirectory() ? 'dir' : 'file',
+      size
+    };
+    if (entry.isDirectory() && depth < MAX_DEPTH) {
+      node.children = buildFileTree(fullPath, depth + 1);
+    }
+    nodes.push(node);
+  }
+  // Folders first, then alphabetical.
+  nodes.sort((a, b) => {
+    if (a.type !== b.type) return a.type === 'dir' ? -1 : 1;
+    return a.name.localeCompare(b.name, undefined, { numeric: true });
+  });
+  return nodes;
+}
+
+// Open (or focus) the TeamFolder window from the renderer.
+ipcMain.handle('window:openFileManager', async () => {
+  if (!currentWorkspace) return false;
+  createFileManagerWindow();
+  return true;
+});
+
+ipcMain.handle('files:getWorkspace', async () => {
+  if (!currentWorkspace) return null;
+  return { path: currentWorkspace, name: pathModule.basename(currentWorkspace) };
+});
+
+// List the workspace tree (or a sub-directory). .teamapi is never exposed.
+ipcMain.handle('files:listTree', async (event, dirPath) => {
+  const base = dirPath ? wsPath(dirPath) : (currentWorkspace ? pathModule.resolve(currentWorkspace) : '');
+  if (!base || !fs.existsSync(base)) return [];
+  return buildFileTree(base, 0);
+});
+
+// Create a file or folder under a parent (defaults to workspace root).
+ipcMain.handle('files:create', async (event, { parentPath, name, type }) => {
+  const cleanName = (name || '').trim();
+  if (!cleanName || cleanName.includes('/') || cleanName.includes('\\') || cleanName === '.teamapi') {
+    throw new Error('Invalid name');
+  }
+  const parent = wsPath(parentPath || currentWorkspace);
+  const target = pathModule.join(parent, cleanName);
+  // Re-check the resolved target stays inside the workspace + isn't .teamapi.
+  wsPath(pathModule.relative(pathModule.resolve(currentWorkspace), target));
+  if (type === 'dir') {
+    fs.mkdirSync(target, { recursive: false });
+  } else {
+    if (fs.existsSync(target)) throw new Error('A file with that name already exists');
+    fs.writeFileSync(target, '', 'utf8');
+  }
+  return {
+    name: cleanName,
+    path: target,
+    type: type === 'dir' ? 'dir' : 'file',
+    size: 0,
+    children: type === 'dir' ? [] : undefined
+  };
+});
+
+ipcMain.handle('files:delete', async (event, { path }) => {
+  const target = wsPath(path);
+  if (target === pathModule.resolve(currentWorkspace)) throw new Error('Cannot delete the workspace root');
+  fs.rmSync(target, { recursive: true, force: true });
+  return true;
+});
+
+ipcMain.handle('files:rename', async (event, { path, newName }) => {
+  const cleanName = (newName || '').trim();
+  if (!cleanName || cleanName.includes('/') || cleanName.includes('\\') || cleanName === '.teamapi') {
+    throw new Error('Invalid name');
+  }
+  const target = wsPath(path);
+  const dest = pathModule.join(pathModule.dirname(target), cleanName);
+  // Confirm destination is still inside the workspace (defensive).
+  wsPath(pathModule.relative(pathModule.resolve(currentWorkspace), dest));
+  if (fs.existsSync(dest) && dest !== target) throw new Error('A file with that name already exists');
+  fs.renameSync(target, dest);
+  return { path: dest, name: cleanName };
+});
+
+// Read a file. Binary files are detected and returned read-only (no content).
+ipcMain.handle('files:read', async (event, { path }) => {
+  const target = wsPath(path);
+  const stat = fs.statSync(target);
+  if (stat.isDirectory()) throw new Error('Cannot read a directory');
+  const buf = fs.readFileSync(target);
+  // Heuristic: treat as binary if it contains a NUL byte or isn't valid UTF-8.
+  const text = buf.toString('utf8');
+  const isBinary = buf.length > 0 && (buf.includes(0) || Buffer.from(text, 'utf8').equals(buf) === false);
+  return {
+    path: target,
+    size: buf.length,
+    binary: isBinary,
+    content: isBinary ? null : text
+  };
+});
+
+ipcMain.handle('files:write', async (event, { path, content }) => {
+  const target = wsPath(path);
+  fs.writeFileSync(target, content == null ? '' : String(content), 'utf8');
+  return true;
+});
+
+ipcMain.handle('files:openExternal', async (event, { path, reveal }) => {
+  const target = wsPath(path);
+  if (reveal) shell.showItemInFolder(target);
+  else shell.openPath(target);
+  return true;
 });
 
 // History

@@ -778,6 +778,15 @@ function setupEventListeners() {
     };
   }
 
+  const btnOpenFileManager = document.getElementById('btnOpenFileManager');
+  if (btnOpenFileManager) {
+    btnOpenFileManager.onclick = () => {
+      window.teamapi.windows.openFileManager().catch((err) => {
+        showToast('Failed to open TeamFolder: ' + (err && err.message ? err.message : err), 'error');
+      });
+    };
+  }
+
   setupPanelResizers();
 
   window.addEventListener('keydown', (e) => {
@@ -1422,6 +1431,7 @@ async function loadWorkspace(ws) {
   document.getElementById('welcomeScreen').style.display = 'none';
   document.getElementById('btnToggleSidebar').style.display = 'flex';
   document.getElementById('btnToggleChat').style.display = 'flex';
+  document.getElementById('btnOpenFileManager').style.display = 'flex';
 
   // Restore chat panel collapse state (defaults to collapsed/hidden; the colorful
   // titlebar AI button is the entry point).
