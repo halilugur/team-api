@@ -103,29 +103,34 @@ function customPrompt(message, defaultValue = '') {
 
 // ---------- tree rendering ----------
 
-function nodeIcon(type) {
+function nodeIcon(type, isOpen = false) {
   if (type === 'dir') {
-    return `<svg class="fm-ic" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>`;
+    if (isOpen) {
+      return `<svg class="fm-ic folder-icon folder-open" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path><path d="M2 10h20"></path></svg>`;
+    }
+    return `<svg class="fm-ic folder-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>`;
   }
-  return `<svg class="fm-ic" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>`;
+  return `<svg class="fm-ic file-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>`;
 }
 
 function twisty(isOpen) {
-  return `<svg class="fm-twisty${isOpen ? ' fm-twisty-open' : ''}" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>`;
+  return `<svg class="fm-twisty${isOpen ? ' fm-twisty-open' : ''}" width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>`;
 }
 
 function renderNodes(nodes, depth, container) {
   for (const node of nodes) {
     const row = document.createElement('div');
     row.className = 'fm-node';
-    row.style.paddingLeft = (depth * 16 + 8) + 'px';
     row.dataset.path = node.path;
     row.dataset.type = node.type;
 
     if (node.type === 'dir') {
+      const folderNode = document.createElement('div');
+      folderNode.className = 'fm-folder-node';
+
       const isOpen = expanded.has(node.path);
-      row.innerHTML = `${twisty(isOpen)}${nodeIcon('dir')}<span class="fm-node-name">${node.name}</span>`;
-      container.appendChild(row);
+      row.innerHTML = `${twisty(isOpen)}${nodeIcon('dir', isOpen)}<span class="fm-node-name">${node.name}</span>`;
+      folderNode.appendChild(row);
 
       row.onclick = (e) => {
         e.stopPropagation();
@@ -135,17 +140,20 @@ function renderNodes(nodes, depth, container) {
         renderTree();
       };
 
-      if (isOpen && node.children && node.children.length) {
+      if (isOpen) {
         const childWrap = document.createElement('div');
-        container.appendChild(childWrap);
-        renderNodes(node.children, depth + 1, childWrap);
-      } else if (isOpen) {
-        const empty = document.createElement('div');
-        empty.className = 'fm-node fm-node-empty';
-        empty.style.paddingLeft = ((depth + 1) * 16 + 8) + 'px';
-        empty.textContent = 'empty';
-        container.appendChild(empty);
+        childWrap.className = 'fm-tree-branch tree-node';
+        if (node.children && node.children.length) {
+          renderNodes(node.children, depth + 1, childWrap);
+        } else {
+          const empty = document.createElement('div');
+          empty.className = 'fm-node fm-node-empty';
+          empty.textContent = 'empty';
+          childWrap.appendChild(empty);
+        }
+        folderNode.appendChild(childWrap);
       }
+      container.appendChild(folderNode);
     } else {
       row.innerHTML = `<span class="fm-twisty-spacer"></span>${nodeIcon('file')}<span class="fm-node-name">${node.name}</span>`;
       container.appendChild(row);

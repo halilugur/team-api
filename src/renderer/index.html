@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <meta http-equiv="Content-Security-Policy"
-    content="default-src 'self' https://fonts.gstatic.com; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; frame-src 'self' blob: data:;">
+    content="default-src 'self' https://fonts.gstatic.com; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https:; style-src-elem 'self' 'unsafe-inline' https:; font-src 'self' https://fonts.gstatic.com https:; img-src 'self' data: blob: http: https:; frame-src 'self' blob: data: preview:;">
   <title>Team API — HTTP Client</title>
   <link rel="stylesheet" href="styles.css">
   <!-- Apply stored/system theme before first paint to avoid a theme flash.
@@ -55,10 +55,13 @@
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
             stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="3"></circle>
-            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+            <path
+              d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z">
+            </path>
           </svg>
         </button>
-        <button class="titlebar-toggle-btn" id="btnOpenFileManager" title="Open TeamFolder File Manager" style="display: none;">
+        <button class="titlebar-toggle-btn" id="btnOpenFileManager" title="Open TeamFolder File Manager"
+          style="display: none;">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
             stroke-linecap="round" stroke-linejoin="round">
             <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
@@ -67,7 +70,9 @@
         <button class="titlebar-toggle-btn" id="btnToggleChat" title="Toggle AI Chat (Ctrl+])" style="display: none;">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
             stroke-linecap="round" stroke-linejoin="round">
-            <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path>
+            <path
+              d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z">
+            </path>
           </svg>
         </button>
       </div>
@@ -165,246 +170,67 @@
     <div class="main-workspace-area">
       <!-- Center Panel (Request Editor) -->
       <main class="main-editor">
-      <!-- Request Tabs Bar -->
-      <div class="request-tabs-bar" id="requestTabsBar">
-        <div class="request-tabs-list" id="requestTabsList"></div>
-        <button class="new-request-tab-btn" id="btnNewRequestTab" title="New Tab">+</button>
-      </div>
-
-      <!-- Placeholder Screen when no tab is open -->
-      <div class="no-request-placeholder" id="noRequestPlaceholder" style="display: flex;">
-        <svg class="placeholder-icon" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-          stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-          <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
-        </svg>
-        <div class="placeholder-title">No request selected</div>
-        <div class="placeholder-desc">Select a request from the sidebar or open a new request tab.</div>
-        <button class="welcome-btn" id="placeholderNewTabBtn"
-          style="padding: 10px 20px; font-size: 13px; margin-top: 10px;">+ New Request Tab</button>
-      </div>
-
-      <div class="editor-main-content" id="editorMainContent" style="display: none;">
-        <!-- URL Bar -->
-        <div class="url-bar">
-          <select class="method-select" id="requestMethod">
-            <option value="GET">GET</option>
-            <option value="POST">POST</option>
-            <option value="PUT">PUT</option>
-            <option value="PATCH">PATCH</option>
-            <option value="DELETE">DELETE</option>
-            <option value="HEAD">HEAD</option>
-            <option value="OPTIONS">OPTIONS</option>
-          </select>
-          <div class="url-input-container">
-            <input type="text" class="url-input" id="requestUrl" placeholder="Enter request URL or {{variable}}">
-          </div>
-          <button class="btn-send" id="btnSend">SEND</button>
-          <button class="btn-code" id="btnCodeSnippet" title="Generate Code Snippet">&lt;/&gt;</button>
-          <div class="save-split" id="saveSplit">
-            <button class="btn-save" id="btnSave" title="Save to a collection (Ctrl/Cmd+S)">
-              <span class="btn-save-label">Save</span>
-              <span class="btn-save-target">Save to…</span>
-            </button>
-            <button class="btn-save-caret" id="btnSaveCaret" title="More save options">&#9662;</button>
-            <div class="save-menu" id="saveMenu">
-              <div class="save-menu-item" id="saveMenuItemSaveAs">Save As…</div>
-            </div>
-          </div>
+        <!-- Request Tabs Bar -->
+        <div class="request-tabs-bar" id="requestTabsBar">
+          <div class="request-tabs-list" id="requestTabsList"></div>
+          <button class="new-request-tab-btn" id="btnNewRequestTab" title="New Tab">+</button>
         </div>
 
-        <!-- Editor Tabs Bar -->
-        <div class="tabs-bar" id="editorTabs">
-          <div class="tab-btn active" data-tab="tabParams">Params</div>
-          <div class="tab-btn" data-tab="tabHeaders">Headers</div>
-          <div class="tab-btn" data-tab="tabAuth">Auth</div>
-          <div class="tab-btn" data-tab="tabBody">Body</div>
-          <div class="tab-btn" data-tab="tabScripts">Script</div>
+        <!-- Placeholder Screen when no tab is open -->
+        <div class="no-request-placeholder" id="noRequestPlaceholder" style="display: flex;">
+          <svg class="placeholder-icon" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+          </svg>
+          <div class="placeholder-title">No request selected</div>
+          <div class="placeholder-desc">Select a request from the sidebar or open a new request tab.</div>
+          <button class="welcome-btn" id="placeholderNewTabBtn"
+            style="padding: 10px 20px; font-size: 13px; margin-top: 10px;">+ New Request Tab</button>
         </div>
 
-        <!-- Editor Tab Content Panels -->
-
-        <!-- Params Tab -->
-        <div class="tab-content active" id="tabParams">
-          <div class="kv-container" id="paramsContainer">
-            <div class="kv-header">
-              <div></div>
-              <div>Key</div>
-              <div>Value</div>
-              <div></div>
-            </div>
-            <!-- Rows dynamically added -->
-          </div>
-        </div>
-
-        <!-- Headers Tab -->
-        <div class="tab-content" id="tabHeaders">
-          <div class="kv-container" id="headersContainer">
-            <div class="kv-header">
-              <div></div>
-              <div>Key</div>
-              <div>Value</div>
-              <div></div>
-            </div>
-            <!-- Rows dynamically added -->
-          </div>
-        </div>
-
-        <!-- Auth Tab -->
-        <div class="tab-content" id="tabAuth">
-          <div class="auth-container">
-            <div class="form-group">
-              <label for="authType">Type</label>
-              <select class="form-control" id="authType">
-                <option value="none">No Auth</option>
-                <option value="bearer">Bearer Token</option>
-                <option value="basic">Basic Auth</option>
-                <option value="apikey">API Key</option>
-                <option value="oauth2">OAuth 2.0</option>
-              </select>
-            </div>
-            <div id="authFields">
-              <!-- Bearer inputs -->
-              <div id="authBearerFields" class="auth-fields" style="display: none; margin-top: 10px;">
-                <div class="form-group">
-                  <label for="authBearerToken">Token</label>
-                  <input type="text" class="form-control mono" id="authBearerToken"
-                    placeholder="{{token}} or plain text">
-                </div>
-              </div>
-
-              <!-- Basic inputs -->
-              <div id="authBasicFields" class="auth-fields" style="display: none; margin-top: 10px;">
-                <div class="form-group" style="margin-bottom: 8px;">
-                  <label for="authBasicUser">Username</label>
-                  <input type="text" class="form-control" id="authBasicUser">
-                </div>
-                <div class="form-group">
-                  <label for="authBasicPassword">Password</label>
-                  <input type="password" class="form-control" id="authBasicPassword">
-                </div>
-              </div>
-
-              <!-- API Key inputs -->
-              <div id="authApiKeyFields" class="auth-fields" style="display: none; margin-top: 10px;">
-                <div class="form-group" style="margin-bottom: 8px;">
-                  <label for="authApiKeyVal">Key Value</label>
-                  <input type="text" class="form-control mono" id="authApiKeyVal">
-                </div>
-                <div class="form-group">
-                  <label for="authApiKeyHeader">Header Name</label>
-                  <input type="text" class="form-control" id="authApiKeyHeader" placeholder="X-API-Key">
-                </div>
-              </div>
-
-              <!-- OAuth 2.0 (inline, Postman-style) -->
-              <div id="authOauthFields" class="auth-fields" style="display: none; margin-top: 10px; flex-direction: column; gap: 12px;">
-                <div style="font-size: 11px; color: var(--text-muted); line-height: 1.5;">
-                  The authorization data is generated from the selected token and sent as a request header.
-                  Expired tokens auto-refresh on send.
-                </div>
-
-                <div class="oauth-columns">
-                  <!-- Left: current token / dropdown -->
-                  <div class="oauth-block oauth-col-left">
-                    <div class="oauth-block-title">Current Token</div>
-                    <div class="form-group" style="margin: 0;">
-                      <label for="oauthTokenSelect">Available Tokens</label>
-                      <div class="oauth-select-row">
-                        <select class="form-control" id="oauthTokenSelect">
-                          <option value="">— No token —</option>
-                        </select>
-                        <button type="button" class="oauth-icon-btn" id="btnOauthDelete" title="Delete selected token" disabled>
-                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path></svg>
-                        </button>
-                      </div>
-                    </div>
-                    <div class="form-group" style="margin: 0;">
-                      <label for="oauthHeaderPrefix">Header Prefix</label>
-                      <input type="text" class="form-control mono" id="oauthHeaderPrefix" value="Bearer" disabled>
-                    </div>
-                    <div class="oauth-status" id="oauthTokenStatus">No token selected</div>
-                  </div>
-
-                  <!-- Right: configure new token -->
-                  <div class="oauth-block oauth-col-right">
-                    <div class="oauth-block-title">Configure New Token</div>
-                    <div class="form-group" style="margin: 0;">
-                      <label for="oauthName">Token Name</label>
-                      <input type="text" class="form-control" id="oauthName" placeholder="My API">
-                    </div>
-                    <div class="form-group" style="margin: 0;">
-                      <label for="oauthGrant">Grant type</label>
-                      <select class="form-control" id="oauthGrant">
-                        <option value="client_credentials">Client Credentials</option>
-                        <option value="password">Password (ROPC)</option>
-                      </select>
-                    </div>
-                    <div class="form-group" style="margin: 0;">
-                      <label for="oauthTokenUrl">Access Token URL</label>
-                      <input type="text" class="form-control mono" id="oauthTokenUrl" placeholder="https://provider.com/oauth/token">
-                    </div>
-                    <div class="form-group" style="margin: 0;">
-                      <label for="oauthClientId">Client ID</label>
-                      <input type="text" class="form-control mono" id="oauthClientId">
-                    </div>
-                    <div class="form-group" style="margin: 0;">
-                      <label for="oauthClientSecret">Client Secret</label>
-                      <input type="password" class="form-control mono" id="oauthClientSecret" placeholder="(optional)">
-                    </div>
-                    <div class="oauth-cred-fields" id="oauthPasswordFields" style="display: none; flex-direction: column; gap: 12px;">
-                      <div class="form-group" style="margin: 0;">
-                        <label for="oauthUsername">Username</label>
-                        <input type="text" class="form-control mono" id="oauthUsername">
-                      </div>
-                      <div class="form-group" style="margin: 0;">
-                        <label for="oauthPassword">Password</label>
-                        <input type="password" class="form-control mono" id="oauthPassword">
-                      </div>
-                    </div>
-                    <div class="form-group" style="margin: 0;">
-                      <label for="oauthScope">Scope</label>
-                      <input type="text" class="form-control mono" id="oauthScope" placeholder="e.g. read:org">
-                    </div>
-                    <div class="form-group" style="margin: 0;">
-                      <label for="oauthClientAuth">Client Authentication</label>
-                      <select class="form-control" id="oauthClientAuth">
-                        <option value="body">Send client credentials in body</option>
-                        <option value="header">Send as Basic Auth header</option>
-                      </select>
-                    </div>
-                    <button type="button" class="btn-primary" id="btnOauthGetToken" style="align-self: flex-start; margin-top: 4px;">Get New Access Token</button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Body Tab -->
-        <div class="tab-content" id="tabBody">
-          <div class="body-options-bar">
-            <div class="body-type-select" id="bodyTypeSelect">
-              <div class="body-type-btn active" data-value="none">none</div>
-              <div class="body-type-btn" data-value="raw">raw</div>
-              <div class="body-type-btn" data-value="form-data">form-data</div>
-              <div class="body-type-btn" data-value="graphql">graphql</div>
-            </div>
-            <select class="body-subtype-select" id="bodySubTypeSelect" style="display: none;">
-              <option value="json">JSON</option>
-              <option value="xml">XML</option>
-              <option value="html">HTML</option>
-              <option value="javascript">JavaScript</option>
-              <option value="text">Text</option>
+        <div class="editor-main-content" id="editorMainContent" style="display: none;">
+          <!-- URL Bar -->
+          <div class="url-bar">
+            <select class="method-select" id="requestMethod">
+              <option value="GET">GET</option>
+              <option value="POST">POST</option>
+              <option value="PUT">PUT</option>
+              <option value="PATCH">PATCH</option>
+              <option value="DELETE">DELETE</option>
+              <option value="HEAD">HEAD</option>
+              <option value="OPTIONS">OPTIONS</option>
             </select>
+            <div class="url-input-container">
+              <input type="text" class="url-input" id="requestUrl" placeholder="Enter request URL or {{variable}}">
+            </div>
+            <button class="btn-send" id="btnSend">SEND</button>
+            <button class="btn-code" id="btnCodeSnippet" title="Generate Code Snippet">&lt;/&gt;</button>
+            <div class="save-split" id="saveSplit">
+              <button class="btn-save" id="btnSave" title="Save to a collection (Ctrl/Cmd+S)">
+                <span class="btn-save-label">Save</span>
+                <span class="btn-save-target">Save to…</span>
+              </button>
+              <button class="btn-save-caret" id="btnSaveCaret" title="More save options">&#9662;</button>
+              <div class="save-menu" id="saveMenu">
+                <div class="save-menu-item" id="saveMenuItemSaveAs">Save As…</div>
+              </div>
+            </div>
           </div>
 
-          <!-- Body Sub-panels -->
-          <div class="body-content-pane" id="bodyContentPane" style="display: none;">
-            <textarea class="editor-textarea mono" id="bodyContent" placeholder="Enter request body here..."></textarea>
+          <!-- Editor Tabs Bar -->
+          <div class="tabs-bar" id="editorTabs">
+            <div class="tab-btn active" data-tab="tabParams">Params</div>
+            <div class="tab-btn" data-tab="tabHeaders">Headers</div>
+            <div class="tab-btn" data-tab="tabAuth">Auth</div>
+            <div class="tab-btn" data-tab="tabBody">Body</div>
+            <div class="tab-btn" data-tab="tabScripts">Script</div>
           </div>
 
-          <div class="body-form-pane" id="bodyFormPane" style="display: none; flex: 1;">
-            <div class="kv-container" id="bodyFormContainer" style="flex: 1;">
+          <!-- Editor Tab Content Panels -->
+
+          <!-- Params Tab -->
+          <div class="tab-content active" id="tabParams">
+            <div class="kv-container" id="paramsContainer">
               <div class="kv-header">
                 <div></div>
                 <div>Key</div>
@@ -415,136 +241,338 @@
             </div>
           </div>
 
-          <div class="body-graphql-pane" id="bodyGraphqlPane"
-            style="display: none; flex-direction: column; gap: 8px; flex: 1;">
-            <div style="flex: 2; display: flex; flex-direction: column;">
-              <label style="font-size: 11px; color: var(--text-muted); margin-bottom: 4px;">QUERY</label>
-              <textarea class="editor-textarea mono" id="graphqlQuery" placeholder="query { ... }"></textarea>
-            </div>
-            <div style="flex: 1; display: flex; flex-direction: column;">
-              <label style="font-size: 11px; color: var(--text-muted); margin-bottom: 4px;">VARIABLES (JSON)</label>
-              <textarea class="editor-textarea mono" id="graphqlVariables" placeholder="{ ... }"></textarea>
-            </div>
-          </div>
-        </div>
-
-        <!-- Scripts Tab -->
-        <div class="tab-content" id="tabScripts">
-          <div class="scripts-options-bar">
-            <div class="scripts-type-select" id="scriptsTypeSelect">
-              <div class="scripts-type-btn active" data-value="pre">Pre-request</div>
-              <div class="scripts-type-btn" data-value="post">Post-response</div>
+          <!-- Headers Tab -->
+          <div class="tab-content" id="tabHeaders">
+            <div class="kv-container" id="headersContainer">
+              <div class="kv-header">
+                <div></div>
+                <div>Key</div>
+                <div>Value</div>
+                <div></div>
+              </div>
+              <!-- Rows dynamically added -->
             </div>
           </div>
 
-          <!-- Pre-Request Script Pane -->
-          <div id="preScriptPane" style="display: flex; flex-direction: column; flex: 1; gap: 12px;">
-            <div class="script-ref-box">
-              <div class="script-ref-title">Pre-Request Sandbox Script (vm-context)</div>
-              <div class="script-ref-code">
-                tp.environment.set("baseUrl", "https://httpbin.org");<br>
-                tp.environment.get("baseUrl");
+          <!-- Auth Tab -->
+          <div class="tab-content" id="tabAuth">
+            <div class="auth-container">
+              <div class="auth-left-column">
+                <div class="form-group">
+                  <label for="authType">Type</label>
+                  <div class="auth-type-select-wrapper">
+                    <select class="form-control" id="authType">
+                      <option value="none">No Auth</option>
+                      <option value="bearer">Bearer Token</option>
+                      <option value="basic">Basic Auth</option>
+                      <option value="apikey">API Key</option>
+                      <option value="oauth2">OAuth 2.0</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="auth-description-box" id="authTypeDesc">
+                  This request does not use any authorization headers or parameters.
+                </div>
+              </div>
+              <div class="auth-right-column">
+                <div id="authFields">
+                  <!-- Bearer inputs -->
+                  <div id="authBearerFields" class="auth-fields" style="display: none; margin-top: 10px;">
+                    <div class="form-group">
+                      <label for="authBearerToken">Token</label>
+                      <input type="text" class="form-control mono" id="authBearerToken"
+                        placeholder="{{token}} or plain text">
+                    </div>
+                  </div>
+
+                  <!-- Basic inputs -->
+                  <div id="authBasicFields" class="auth-fields" style="display: none; margin-top: 10px;">
+                    <div class="form-group" style="margin-bottom: 8px;">
+                      <label for="authBasicUser">Username</label>
+                      <input type="text" class="form-control" id="authBasicUser">
+                    </div>
+                    <div class="form-group">
+                      <label for="authBasicPassword">Password</label>
+                      <input type="password" class="form-control" id="authBasicPassword">
+                    </div>
+                  </div>
+
+                  <!-- API Key inputs -->
+                  <div id="authApiKeyFields" class="auth-fields" style="display: none; margin-top: 10px;">
+                    <div class="form-group" style="margin-bottom: 8px;">
+                      <label for="authApiKeyVal">Key Value</label>
+                      <input type="text" class="form-control mono" id="authApiKeyVal">
+                    </div>
+                    <div class="form-group">
+                      <label for="authApiKeyHeader">Header Name</label>
+                      <input type="text" class="form-control" id="authApiKeyHeader" placeholder="X-API-Key">
+                    </div>
+                  </div>
+
+                  <!-- OAuth 2.0 (inline, Postman-style) -->
+                  <div id="authOauthFields" class="auth-fields"
+                    style="display: none; margin-top: 10px; flex-direction: column; gap: 12px;">
+                    <div style="font-size: 11px; color: var(--text-muted); line-height: 1.5;">
+                      The authorization data is generated from the selected token and sent as a request header.
+                      Expired tokens auto-refresh on send.
+                    </div>
+
+                    <div class="oauth-columns">
+                      <!-- Left: current token / dropdown -->
+                      <div class="oauth-block oauth-col-left">
+                        <div class="oauth-block-title">Current Token</div>
+                        <div class="form-group" style="margin: 0;">
+                          <label for="oauthTokenSelect">Available Tokens</label>
+                          <div class="oauth-select-row">
+                            <select class="form-control" id="oauthTokenSelect">
+                              <option value="">— No token —</option>
+                            </select>
+                            <button type="button" class="oauth-icon-btn" id="btnOauthDelete"
+                              title="Delete selected token" disabled>
+                              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path
+                                  d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6">
+                                </path>
+                              </svg>
+                            </button>
+                          </div>
+                        </div>
+                        <div class="form-group" style="margin: 0;">
+                          <label for="oauthHeaderPrefix">Header Prefix</label>
+                          <input type="text" class="form-control mono" id="oauthHeaderPrefix" value="Bearer" disabled>
+                        </div>
+                        <div class="oauth-status" id="oauthTokenStatus">No token selected</div>
+                      </div>
+
+                      <!-- Right: configure new token -->
+                      <div class="oauth-block oauth-col-right">
+                        <div class="oauth-block-title">Configure New Token</div>
+                        <div class="form-group" style="margin: 0;">
+                          <label for="oauthName">Token Name</label>
+                          <input type="text" class="form-control" id="oauthName" placeholder="My API">
+                        </div>
+                        <div class="form-group" style="margin: 0;">
+                          <label for="oauthGrant">Grant type</label>
+                          <select class="form-control" id="oauthGrant">
+                            <option value="client_credentials">Client Credentials</option>
+                            <option value="password">Password (ROPC)</option>
+                          </select>
+                        </div>
+                        <div class="form-group" style="margin: 0;">
+                          <label for="oauthTokenUrl">Access Token URL</label>
+                          <input type="text" class="form-control mono" id="oauthTokenUrl"
+                            placeholder="https://provider.com/oauth/token">
+                        </div>
+                        <div class="form-group" style="margin: 0;">
+                          <label for="oauthClientId">Client ID</label>
+                          <input type="text" class="form-control mono" id="oauthClientId">
+                        </div>
+                        <div class="form-group" style="margin: 0;">
+                          <label for="oauthClientSecret">Client Secret</label>
+                          <input type="password" class="form-control mono" id="oauthClientSecret"
+                            placeholder="(optional)">
+                        </div>
+                        <div class="oauth-cred-fields" id="oauthPasswordFields"
+                          style="display: none; flex-direction: column; gap: 12px;">
+                          <div class="form-group" style="margin: 0;">
+                            <label for="oauthUsername">Username</label>
+                            <input type="text" class="form-control mono" id="oauthUsername">
+                          </div>
+                          <div class="form-group" style="margin: 0;">
+                            <label for="oauthPassword">Password</label>
+                            <input type="password" class="form-control mono" id="oauthPassword">
+                          </div>
+                        </div>
+                        <div class="form-group" style="margin: 0;">
+                          <label for="oauthScope">Scope</label>
+                          <input type="text" class="form-control mono" id="oauthScope" placeholder="e.g. read:org">
+                        </div>
+                        <div class="form-group" style="margin: 0;">
+                          <label for="oauthClientAuth">Client Authentication</label>
+                          <select class="form-control" id="oauthClientAuth">
+                            <option value="body">Send client credentials in body</option>
+                            <option value="header">Send as Basic Auth header</option>
+                          </select>
+                        </div>
+                        <button type="button" class="btn-primary" id="btnOauthGetToken"
+                          style="align-self: flex-start; margin-top: 4px;">Get New Access Token</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
-            <textarea class="editor-textarea mono" id="preScript"
-              placeholder="// Javascript executed before the request executes..."></textarea>
           </div>
 
-          <!-- Post-Response Script Pane -->
-          <div id="postScriptPane" style="display: none; flex-direction: column; flex: 1; gap: 12px;">
-            <div class="script-ref-box">
-              <div class="script-ref-title">Post-Response Sandbox Script (vm-context)</div>
-              <div class="script-ref-code">
-                const json = tp.response.json();<br>
-                tp.environment.set("authToken", json.token);<br>
-                console.log("Response Code:", tp.response.code);
+            <!-- Body Tab -->
+            <div class="tab-content" id="tabBody">
+              <div class="body-options-bar">
+                <div class="body-type-select" id="bodyTypeSelect">
+                  <div class="body-type-btn active" data-value="none">none</div>
+                  <div class="body-type-btn" data-value="raw">raw</div>
+                  <div class="body-type-btn" data-value="form-data">form-data</div>
+                  <div class="body-type-btn" data-value="graphql">graphql</div>
+                </div>
+                <select class="body-subtype-select" id="bodySubTypeSelect" style="display: none;">
+                  <option value="json">JSON</option>
+                  <option value="xml">XML</option>
+                  <option value="html">HTML</option>
+                  <option value="javascript">JavaScript</option>
+                  <option value="text">Text</option>
+                </select>
+              </div>
+
+              <!-- Body Sub-panels -->
+              <div class="body-content-pane" id="bodyContentPane" style="display: none;">
+                <textarea class="editor-textarea mono" id="bodyContent"
+                  placeholder="Enter request body here..."></textarea>
+              </div>
+
+              <div class="body-form-pane" id="bodyFormPane" style="display: none; flex: 1;">
+                <div class="kv-container" id="bodyFormContainer" style="flex: 1;">
+                  <div class="kv-header">
+                    <div></div>
+                    <div>Key</div>
+                    <div>Value</div>
+                    <div></div>
+                  </div>
+                  <!-- Rows dynamically added -->
+                </div>
+              </div>
+
+              <div class="body-graphql-pane" id="bodyGraphqlPane"
+                style="display: none; flex-direction: column; gap: 8px; flex: 1;">
+                <div style="flex: 2; display: flex; flex-direction: column;">
+                  <label style="font-size: 11px; color: var(--text-muted); margin-bottom: 4px;">QUERY</label>
+                  <textarea class="editor-textarea mono" id="graphqlQuery" placeholder="query { ... }"></textarea>
+                </div>
+                <div style="flex: 1; display: flex; flex-direction: column;">
+                  <label style="font-size: 11px; color: var(--text-muted); margin-bottom: 4px;">VARIABLES (JSON)</label>
+                  <textarea class="editor-textarea mono" id="graphqlVariables" placeholder="{ ... }"></textarea>
+                </div>
               </div>
             </div>
-            <textarea class="editor-textarea mono" id="postScript"
-              placeholder="// Javascript executed after receiving the response..."></textarea>
+
+            <!-- Scripts Tab -->
+            <div class="tab-content" id="tabScripts">
+              <div class="scripts-options-bar">
+                <div class="scripts-type-select" id="scriptsTypeSelect">
+                  <div class="scripts-type-btn active" data-value="pre">Pre-request</div>
+                  <div class="scripts-type-btn" data-value="post">Post-response</div>
+                </div>
+              </div>
+
+              <!-- Pre-Request Script Pane -->
+              <div id="preScriptPane" style="display: flex; flex-direction: column; flex: 1; gap: 12px;">
+                <div class="script-ref-box">
+                  <div class="script-ref-title">Pre-Request Sandbox Script (vm-context)</div>
+                  <div class="script-ref-code">
+                    tp.environment.set("baseUrl", "https://httpbin.org");<br>
+                    tp.environment.get("baseUrl");
+                  </div>
+                </div>
+                <textarea class="editor-textarea mono" id="preScript"
+                  placeholder="// Javascript executed before the request executes..."></textarea>
+              </div>
+
+              <!-- Post-Response Script Pane -->
+              <div id="postScriptPane" style="display: none; flex-direction: column; flex: 1; gap: 12px;">
+                <div class="script-ref-box">
+                  <div class="script-ref-title">Post-Response Sandbox Script (vm-context)</div>
+                  <div class="script-ref-code">
+                    const json = tp.response.json();<br>
+                    tp.environment.set("authToken", json.token);<br>
+                    console.log("Response Code:", tp.response.code);
+                  </div>
+                </div>
+                <textarea class="editor-textarea mono" id="postScript"
+                  placeholder="// Javascript executed after receiving the response..."></textarea>
+              </div>
+            </div>
+          </div>
+
+      </main>
+
+      <!-- Response panel height resizer -->
+      <div class="resizer resizer-horizontal" id="responseResizer" title="Drag to resize response panel"></div>
+
+      <!-- Right Panel (Response Panel) -->
+      <aside class="response-panel" id="responsePanel">
+        <div class="response-header">
+          <div class="response-status-group">
+            <div class="response-badge" id="responseStatus" style="display: none;">0</div>
+            <div class="response-meta" id="responseMeta" style="display: none;">
+              <span id="responseTime">0ms</span>
+              <span>&bull;</span>
+              <span id="responseSize">0 B</span>
+            </div>
+          </div>
+          <div class="response-actions">
+            <div class="pretty-raw-toggle" id="prettyRawToggle" style="display: none;">
+              <div class="toggle-btn active" data-mode="pretty">Pretty</div>
+              <div class="toggle-btn" data-mode="raw">Raw</div>
+              <div class="toggle-btn" data-mode="preview">Preview</div>
+            </div>
+            <button class="sidebar-btn" id="btnCopyResponse" style="display: none;">Copy</button>
           </div>
         </div>
-      </div>
 
-    </main>
+        <!-- Response Tabs Bar -->
+        <div class="tabs-bar" id="responseTabs">
+          <div class="tab-btn active" data-tab="tabRespBody">Body</div>
+          <div class="tab-btn" data-tab="tabRespHeaders">Headers</div>
+          <div class="tab-btn" data-tab="tabRespLog">Script Log</div>
+          <div class="tab-btn" data-tab="tabRespTests">Tests</div>
+        </div>
 
-    <!-- Response panel height resizer -->
-    <div class="resizer resizer-horizontal" id="responseResizer" title="Drag to resize response panel"></div>
-
-    <!-- Right Panel (Response Panel) -->
-    <aside class="response-panel" id="responsePanel">
-      <div class="response-header">
-        <div class="response-status-group">
-          <div class="response-badge" id="responseStatus" style="display: none;">0</div>
-          <div class="response-meta" id="responseMeta" style="display: none;">
-            <span id="responseTime">0ms</span>
-            <span>&bull;</span>
-            <span id="responseSize">0 B</span>
+        <!-- Response Tab Panels -->
+        <div class="tab-content active" id="tabRespBody" style="background-color: var(--bg-primary); gap: 8px;">
+          <div class="response-search-bar" id="responseSearchBar"
+            style="display: none; align-items: center; gap: 8px; border-bottom: 1px solid var(--border); padding-bottom: 6px;">
+            <input type="text" id="responseSearchInput" placeholder="Search in response..."
+              style="font-size: 11px; padding: 4px 8px; flex: 1; background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: 4px; color: var(--text-primary);">
+            <span id="responseSearchCount"
+              style="font-size: 11px; color: var(--text-muted); font-family: monospace;">0/0</span>
+            <button id="btnPrevSearch" class="sidebar-btn" style="padding: 2px 6px;">&uarr;</button>
+            <button id="btnNextSearch" class="sidebar-btn" style="padding: 2px 6px;">&darr;</button>
+          </div>
+          <div class="response-jsonpath-bar" id="responseJsonPathBar"
+            style="display: none; align-items: center; gap: 8px; border-bottom: 1px solid var(--border); padding-bottom: 6px;">
+            <input type="text" id="responseJsonPathInput" placeholder="Filter with JSONPath (e.g. $.items[*].name)"
+              style="font-size: 11px; padding: 4px 8px; flex: 1; background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: 4px; color: var(--text-primary); font-family: monospace;">
+            <button id="btnClearJsonPath" class="sidebar-btn" style="padding: 2px 6px;">Clear</button>
+          </div>
+          <div class="json-rendered mono" id="responseBodyDisplay"
+            style="overflow: auto; flex: 1; user-select: text; -webkit-user-select: text;">
+            <!-- Display raw or formatted response content -->
+            <div style="color: var(--text-dim); text-align: center; margin-top: 40px;">Send a request to see output
+            </div>
           </div>
         </div>
-        <div class="response-actions">
-          <div class="pretty-raw-toggle" id="prettyRawToggle" style="display: none;">
-            <div class="toggle-btn active" data-mode="pretty">Pretty</div>
-            <div class="toggle-btn" data-mode="raw">Raw</div>
-            <div class="toggle-btn" data-mode="preview">Preview</div>
+
+        <div class="tab-content" id="tabRespHeaders">
+          <div style="overflow-y: auto; flex: 1;">
+            <table class="headers-table" id="responseHeadersTable">
+              <!-- Headers rows filled dynamically -->
+            </table>
           </div>
-          <button class="sidebar-btn" id="btnCopyResponse" style="display: none;">Copy</button>
         </div>
-      </div>
 
-      <!-- Response Tabs Bar -->
-      <div class="tabs-bar" id="responseTabs">
-        <div class="tab-btn active" data-tab="tabRespBody">Body</div>
-        <div class="tab-btn" data-tab="tabRespHeaders">Headers</div>
-        <div class="tab-btn" data-tab="tabRespLog">Script Log</div>
-        <div class="tab-btn" data-tab="tabRespTests">Tests</div>
-      </div>
+        <div class="tab-content" id="tabRespLog">
+          <div class="script-logs-list" id="scriptLogsDisplay">
+            <!-- console.log statements printed here -->
+            <div style="color: var(--text-dim); text-align: center; margin-top: 40px;">No execution scripts run yet
+            </div>
+          </div>
+        </div>
 
-      <!-- Response Tab Panels -->
-      <div class="tab-content active" id="tabRespBody" style="background-color: var(--bg-primary); gap: 8px;">
-        <div class="response-search-bar" id="responseSearchBar"
-          style="display: none; align-items: center; gap: 8px; border-bottom: 1px solid var(--border); padding-bottom: 6px;">
-          <input type="text" id="responseSearchInput" placeholder="Search in response..."
-            style="font-size: 11px; padding: 4px 8px; flex: 1; background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: 4px; color: var(--text-primary);">
-          <span id="responseSearchCount"
-            style="font-size: 11px; color: var(--text-muted); font-family: monospace;">0/0</span>
-          <button id="btnPrevSearch" class="sidebar-btn" style="padding: 2px 6px;">&uarr;</button>
-          <button id="btnNextSearch" class="sidebar-btn" style="padding: 2px 6px;">&darr;</button>
+        <div class="tab-content" id="tabRespTests">
+          <div class="script-logs-list" id="responseTestsDisplay">
+            <div style="color: var(--text-dim); text-align: center; margin-top: 40px;">No tests executed yet</div>
+          </div>
         </div>
-        <div class="response-jsonpath-bar" id="responseJsonPathBar"
-          style="display: none; align-items: center; gap: 8px; border-bottom: 1px solid var(--border); padding-bottom: 6px;">
-          <input type="text" id="responseJsonPathInput" placeholder="Filter with JSONPath (e.g. $.items[*].name)"
-            style="font-size: 11px; padding: 4px 8px; flex: 1; background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: 4px; color: var(--text-primary); font-family: monospace;">
-          <button id="btnClearJsonPath" class="sidebar-btn" style="padding: 2px 6px;">Clear</button>
-        </div>
-        <div class="json-rendered mono" id="responseBodyDisplay"
-          style="overflow: auto; flex: 1; user-select: text; -webkit-user-select: text;">
-          <!-- Display raw or formatted response content -->
-          <div style="color: var(--text-dim); text-align: center; margin-top: 40px;">Send a request to see output</div>
-        </div>
-      </div>
-
-      <div class="tab-content" id="tabRespHeaders">
-        <div style="overflow-y: auto; flex: 1;">
-          <table class="headers-table" id="responseHeadersTable">
-            <!-- Headers rows filled dynamically -->
-          </table>
-        </div>
-      </div>
-
-      <div class="tab-content" id="tabRespLog">
-        <div class="script-logs-list" id="scriptLogsDisplay">
-          <!-- console.log statements printed here -->
-          <div style="color: var(--text-dim); text-align: center; margin-top: 40px;">No execution scripts run yet</div>
-        </div>
-      </div>
-
-      <div class="tab-content" id="tabRespTests">
-        <div class="script-logs-list" id="responseTestsDisplay">
-          <div style="color: var(--text-dim); text-align: center; margin-top: 40px;">No tests executed yet</div>
-        </div>
-      </div>
-    </aside>
+      </aside>
     </div>
 
     <!-- Chat panel width resizer -->
@@ -577,7 +605,9 @@
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                 stroke-linecap="round" stroke-linejoin="round">
                 <circle cx="12" cy="12" r="3"></circle>
-                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                <path
+                  d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z">
+                </path>
               </svg>
             </button>
           </div>
@@ -644,7 +674,9 @@
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
           stroke-linecap="round" stroke-linejoin="round">
           <circle cx="12" cy="12" r="3"></circle>
-          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+          <path
+            d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z">
+          </path>
         </svg>
       </button>
     </div>
@@ -732,7 +764,8 @@
       </div>
       <div class="save-req-target" id="saveReqTarget">Saving to: …</div>
       <div class="save-req-empty" id="saveReqEmpty" style="display: none;">
-        No collections yet. <button class="btn-primary" id="btnSaveReqNewCollection" style="margin-left: 8px; padding: 4px 10px;">New Collection</button>
+        No collections yet. <button class="btn-primary" id="btnSaveReqNewCollection"
+          style="margin-left: 8px; padding: 4px 10px;">New Collection</button>
       </div>
     </div>
     <div class="dialog-footer">
@@ -793,91 +826,91 @@
     <div class="dialog-header">Settings</div>
 
     <div class="settings-layout">
-    <!-- Category menu (left) -->
-    <nav class="settings-tabs">
-      <button type="button" class="settings-tab active" data-settings-tab="appearance">Appearance</button>
-      <button type="button" class="settings-tab" data-settings-tab="ai">AI Provider</button>
-      <button type="button" class="settings-tab" data-settings-tab="proxy">Proxy</button>
-      <button type="button" class="settings-tab" data-settings-tab="advanced">Advanced</button>
-    </nav>
+      <!-- Category menu (left) -->
+      <nav class="settings-tabs">
+        <button type="button" class="settings-tab active" data-settings-tab="appearance">Appearance</button>
+        <button type="button" class="settings-tab" data-settings-tab="ai">AI Provider</button>
+        <button type="button" class="settings-tab" data-settings-tab="proxy">Proxy</button>
+        <button type="button" class="settings-tab" data-settings-tab="advanced">Advanced</button>
+      </nav>
 
-    <div class="dialog-body settings-body">
+      <div class="dialog-body settings-body">
 
-      <!-- Appearance -->
-      <div class="settings-pane active" data-settings-pane="appearance">
-        <div class="settings-section">
-          <div class="settings-section-title">Theme</div>
-          <div class="theme-seg" id="settingsThemeControl">
-            <button type="button" class="theme-opt" data-theme="system">System</button>
-            <button type="button" class="theme-opt" data-theme="dark">Dark</button>
-            <button type="button" class="theme-opt" data-theme="light">Light</button>
+        <!-- Appearance -->
+        <div class="settings-pane active" data-settings-pane="appearance">
+          <div class="settings-section">
+            <div class="settings-section-title">Theme</div>
+            <div class="theme-seg" id="settingsThemeControl">
+              <button type="button" class="theme-opt" data-theme="system">System</button>
+              <button type="button" class="theme-opt" data-theme="dark">Dark</button>
+              <button type="button" class="theme-opt" data-theme="light">Light</button>
+            </div>
+            <div class="settings-hint">Choose a theme. "System" follows your OS appearance.</div>
           </div>
-          <div class="settings-hint">Choose a theme. "System" follows your OS appearance.</div>
         </div>
+
+        <!-- AI Provider -->
+        <div class="settings-pane" data-settings-pane="ai">
+          <div class="settings-section">
+            <div class="form-group">
+              <label for="aiSettingsProvider">Provider</label>
+              <select class="form-control" id="aiSettingsProvider"></select>
+            </div>
+            <div id="aiSettingsFields" style="display: flex; flex-direction: column; gap: 12px;"></div>
+            <div class="settings-hint">
+              Keys are stored in this app's global data and are never written into the shared workspace
+              folder. Models are editable; use ⟳ in the chat header to fetch the ones your account can see.
+            </div>
+          </div>
+          <div class="settings-section">
+            <label class="switch-row">
+              <span class="switch">
+                <input type="checkbox" id="aiSetAllowSelfSigned">
+                <span class="switch-track"></span>
+              </span>
+              <span>Allow self-signed certificates (skip TLS verification)</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Proxy -->
+        <div class="settings-pane" data-settings-pane="proxy">
+          <div class="settings-section">
+            <label class="switch-row">
+              <span class="switch">
+                <input type="checkbox" id="aiSetUseSystemProxy">
+                <span class="switch-track"></span>
+              </span>
+              <span>Use system proxy</span>
+            </label>
+            <div class="settings-hint">
+              Route HTTP test requests and AI chat through your operating system's configured proxy
+              (System Settings › Network › Proxies). No manual host/port needed. SOCKS proxies are not supported.
+            </div>
+          </div>
+        </div>
+
+        <!-- Advanced -->
+        <div class="settings-pane" data-settings-pane="advanced">
+          <div class="settings-section">
+            <div class="settings-section-title">App data location</div>
+            <div class="settings-hint" id="userDataPath">Loading…</div>
+            <div class="settings-hint">
+              This folder holds your AI settings, theme, and cached data. It is kept after uninstall —
+              delete it manually if the app won't start.
+            </div>
+          </div>
+          <div class="settings-section">
+            <div class="settings-section-title">Reset</div>
+            <button type="button" class="btn-danger" id="btnResetAppData">Reset app data…</button>
+            <div class="settings-hint">
+              Clears AI settings, theme, cache and stored UI state, then restarts the app — equivalent
+              to a clean reinstall without leftover data.
+            </div>
+          </div>
+        </div>
+
       </div>
-
-      <!-- AI Provider -->
-      <div class="settings-pane" data-settings-pane="ai">
-        <div class="settings-section">
-          <div class="form-group">
-            <label for="aiSettingsProvider">Provider</label>
-            <select class="form-control" id="aiSettingsProvider"></select>
-          </div>
-          <div id="aiSettingsFields" style="display: flex; flex-direction: column; gap: 12px;"></div>
-          <div class="settings-hint">
-            Keys are stored in this app's global data and are never written into the shared workspace
-            folder. Models are editable; use ⟳ in the chat header to fetch the ones your account can see.
-          </div>
-        </div>
-        <div class="settings-section">
-          <label class="switch-row">
-            <span class="switch">
-              <input type="checkbox" id="aiSetAllowSelfSigned">
-              <span class="switch-track"></span>
-            </span>
-            <span>Allow self-signed certificates (skip TLS verification)</span>
-          </label>
-        </div>
-      </div>
-
-      <!-- Proxy -->
-      <div class="settings-pane" data-settings-pane="proxy">
-        <div class="settings-section">
-          <label class="switch-row">
-            <span class="switch">
-              <input type="checkbox" id="aiSetUseSystemProxy">
-              <span class="switch-track"></span>
-            </span>
-            <span>Use system proxy</span>
-          </label>
-          <div class="settings-hint">
-            Route HTTP test requests and AI chat through your operating system's configured proxy
-            (System Settings › Network › Proxies). No manual host/port needed. SOCKS proxies are not supported.
-          </div>
-        </div>
-      </div>
-
-      <!-- Advanced -->
-      <div class="settings-pane" data-settings-pane="advanced">
-        <div class="settings-section">
-          <div class="settings-section-title">App data location</div>
-          <div class="settings-hint" id="userDataPath">Loading…</div>
-          <div class="settings-hint">
-            This folder holds your AI settings, theme, and cached data. It is kept after uninstall —
-            delete it manually if the app won't start.
-          </div>
-        </div>
-        <div class="settings-section">
-          <div class="settings-section-title">Reset</div>
-          <button type="button" class="btn-danger" id="btnResetAppData">Reset app data…</button>
-          <div class="settings-hint">
-            Clears AI settings, theme, cache and stored UI state, then restarts the app — equivalent
-            to a clean reinstall without leftover data.
-          </div>
-        </div>
-      </div>
-
-    </div>
     </div>
     <div class="dialog-footer">
       <button class="btn-secondary" id="btnCancelAISettings">Close</button>

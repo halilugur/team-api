@@ -1575,8 +1575,13 @@ function renderCollectionsTree() {
 
     const chevron = document.createElement('span');
     chevron.className = `chevron ${isExpanded ? '' : 'collapsed'}`;
-    chevron.innerHTML = '&#9660;';
+    chevron.innerHTML = `<svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>`;
     colHeader.appendChild(chevron);
+
+    const colIcon = document.createElement('span');
+    colIcon.className = 'item-icon col-icon';
+    colIcon.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"></path></svg>`;
+    colHeader.appendChild(colIcon);
 
     const name = document.createElement('span');
     name.className = 'item-name';
@@ -1647,8 +1652,17 @@ function renderFolderNode(folder, colId, colDetail) {
 
   const fChevron = document.createElement('span');
   fChevron.className = `chevron ${folderExpanded ? '' : 'collapsed'}`;
-  fChevron.innerHTML = '&#9660;';
+  fChevron.innerHTML = `<svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>`;
   folderHeader.appendChild(fChevron);
+
+  const fIcon = document.createElement('span');
+  fIcon.className = 'item-icon folder-icon';
+  if (folderExpanded) {
+    fIcon.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path><path d="M2 10h20"></path></svg>`;
+  } else {
+    fIcon.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>`;
+  }
+  folderHeader.appendChild(fIcon);
 
   const fName = document.createElement('span');
   fName.className = 'item-name';
@@ -2263,6 +2277,22 @@ function renderAuthFields(type) {
   // OAuth 2.0 uses a wide two-column row; other auth types stay compact.
   const container = document.querySelector('.auth-container');
   if (container) container.classList.toggle('auth-wide', type === 'oauth2');
+
+  const descEl = document.getElementById('authTypeDesc');
+  if (descEl) {
+    if (type === 'none') {
+      descEl.innerHTML = 'This request does not use any authorization headers or parameters.';
+    } else if (type === 'bearer') {
+      descEl.innerHTML = 'Bearer Token authorization. The authorization header will be automatically generated as:<br><code class="auth-code">Authorization: Bearer &lt;token&gt;</code>';
+    } else if (type === 'basic') {
+      descEl.innerHTML = 'Basic authorization. The authorization header will be automatically generated as:<br><code class="auth-code">Authorization: Basic &lt;base64&gt;</code>';
+    } else if (type === 'apikey') {
+      descEl.innerHTML = 'API Key authorization. An API key will be added to either the Request Headers or Query Params as configured.';
+    } else if (type === 'oauth2') {
+      descEl.innerHTML = 'OAuth 2.0 authorization. The access token will be retrieved and attached to the request headers. Expired tokens auto-refresh on send.';
+    }
+  }
+
   if (type === 'bearer') {
     document.getElementById('authBearerFields').style.display = 'block';
   } else if (type === 'basic') {
@@ -2506,7 +2536,8 @@ function makeResponseSnapshot(result) {
     error: result.error || null,
     scriptLog: result.scriptLog || [],
     tests: result.tests || [],
-    savedAt: new Date().toISOString()
+    savedAt: new Date().toISOString(),
+    url: result.url || null
   };
 }
 
@@ -2561,7 +2592,7 @@ function applyResponseToView(result) {
       activeMode = 'preview';
     }
 
-    renderResponseBody(result.body, activeMode);
+    renderResponseBody(result.body, activeMode, result.url);
   }
 
   renderResponseHeaders(result.headers);
@@ -2631,7 +2662,7 @@ function syntaxHighlightJson(json) {
 }
 
 // Display body content
-function renderResponseBody(text, mode) {
+function renderResponseBody(text, mode, url) {
   const display = document.getElementById('responseBodyDisplay');
   display.innerHTML = '';
 
@@ -2662,12 +2693,52 @@ function renderResponseBody(text, mode) {
     } else {
       const iframe = document.createElement('iframe');
       iframe.className = 'preview-iframe';
-      iframe.sandbox = 'allow-scripts allow-popups';
-      // Load via a data: URL. Unlike blob:/srcdoc:, a data: document gets an
-      // opaque origin and does NOT inherit the app's strict CSP — so the
-      // previewed HTML (inline scripts/styles/images) renders fully. The sandbox
-      // (no allow-same-origin) still keeps it isolated from the app's origin.
-      iframe.src = 'data:text/html;charset=utf-8,' + encodeURIComponent(text);
+      iframe.sandbox = 'allow-popups';
+
+      let baseUrl = url;
+      if (!baseUrl) {
+        const urlInput = document.getElementById('requestUrl');
+        const rawUrl = urlInput ? urlInput.value.trim() : '';
+        const envVars = state.activeEnv ? state.activeEnv.variables : {};
+        baseUrl = interpolate(rawUrl, envVars);
+      }
+
+      // Standardize base href for relative assets
+      let parsedHtml = text;
+      let baseHref = 'about:blank';
+      if (baseUrl) {
+        try {
+          const urlObj = new URL(baseUrl);
+          baseHref = urlObj.origin + urlObj.pathname;
+          if (!baseHref.endsWith('/')) {
+            if (urlObj.pathname.includes('.') && !urlObj.pathname.endsWith('/')) {
+              baseHref = urlObj.origin + urlObj.pathname.substring(0, urlObj.pathname.lastIndexOf('/') + 1);
+            } else {
+              baseHref += '/';
+            }
+          }
+        } catch (e) {
+          baseHref = 'http://localhost/';
+        }
+      }
+
+      // Inject <base href="..."> into the head or top of document
+      if (!text.toLowerCase().includes('<base ')) {
+        const baseTag = `<base href="${baseHref}">`;
+        const headIndex = text.toLowerCase().indexOf('<head>');
+        if (headIndex !== -1) {
+          parsedHtml = text.slice(0, headIndex + 6) + baseTag + text.slice(headIndex + 6);
+        } else {
+          parsedHtml = baseTag + text;
+        }
+      }
+      // Strip <script> tags — scripts are blocked by the sandbox anyway,
+      // and leaving them triggers noisy "Blocked script execution" console warnings.
+      parsedHtml = parsedHtml.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script\s*>/gi, '');
+      // Also remove inline event handlers (onclick, onerror, onload, etc.)
+      parsedHtml = parsedHtml.replace(/\s+on\w+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '');
+
+      iframe.srcdoc = parsedHtml;
       display.appendChild(iframe);
     }
   } else if (mode === 'pretty') {

@@ -106,5 +106,8 @@ contextBridge.exposeInMainWorld('teamapi', {
     deleteToken: (id) => ipcRenderer.invoke('oauth:deleteToken', id),
     getToken: (config) => ipcRenderer.invoke('oauth:getToken', config),
     refresh: (payload) => ipcRenderer.invoke('oauth:refresh', payload)
+  },
+  preview: {
+    setBaseUrl: (url) => ipcRenderer.invoke('preview:setBaseUrl', url)
   }
 });

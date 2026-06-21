@@ -1,8 +1,13 @@
-const { app, BrowserWindow, ipcMain, dialog, Menu, shell, session } = require('electron');
-app.name = 'Team API';
-app.setName('Team API');
+const { app, BrowserWindow, ipcMain, dialog, Menu, shell, session, protocol } = require('electron');
 const pathModule = require('path');
 const fs = require('fs');
+
+protocol.registerSchemesAsPrivileged([
+  { scheme: 'preview', privileges: { standard: true, secure: true, supportFetchAPI: true } }
+]);
+
+app.name = 'Team API';
+app.setName('Team API');
 const { v4: uuidv4 } = require('uuid');
 const vm = require('vm');
 const { PROVIDERS, streamChat, listModels } = require('./ai-providers');
@@ -30,6 +35,7 @@ let mainWindow = null;
 let fileManagerWindow = null;
 let currentWorkspace = null;
 let activeWatchers = [];
+let lastRequestBaseUrl = '';
 
 function setupWorkspaceWatcher(path) {
   // Close any existing watchers
@@ -286,6 +292,36 @@ function createFileManagerWindow() {
 }
 
 app.whenReady().then(() => {
+  // Register preview protocol handler
+  protocol.handle('preview', async (request) => {
+    try {
+      const urlObj = new URL(request.url);
+      const cleanPath = urlObj.pathname.replace(/\/+$/, '');
+      if (cleanPath !== '/preview.html' && cleanPath !== '') {
+        if (lastRequestBaseUrl) {
+          try {
+            const relPath = urlObj.pathname.startsWith('/') ? urlObj.pathname.substring(1) : urlObj.pathname;
+            const targetUrl = new URL(relPath + urlObj.search, lastRequestBaseUrl).href;
+            return new Response(null, {
+              status: 302,
+              headers: { 'Location': targetUrl }
+            });
+          } catch (e) {
+            console.error('Failed to redirect preview asset request:', e);
+          }
+        }
+      }
+      const filePath = pathModule.join(__dirname, '../renderer/preview.html');
+      const content = fs.readFileSync(filePath);
+      return new Response(content, {
+        headers: { 'content-type': 'text/html; charset=utf-8' }
+      });
+    } catch (e) {
+      console.error('Failed to read preview.html in protocol handler:', e);
+      return new Response('Not Found', { status: 404 });
+    }
+  });
+
   // Use the OS-configured proxy so resolveProxy() (for "Use system proxy")
   // reflects the system settings.
   try { session.defaultSession.setProxy({ mode: 'system' }); } catch (e) {}
@@ -842,6 +878,7 @@ ipcMain.handle('request:execute', async (event, { request: requestObj, envVars }
 
   // 2. Interpolate URL and parameters
   const interpolatedUrl = interpolate(requestObj.url, activeEnvVars);
+  lastRequestBaseUrl = interpolatedUrl;
 
   // Headers
   const requestHeaders = {};
@@ -1035,7 +1072,17 @@ ipcMain.handle('request:execute', async (event, { request: requestObj, envVars }
       responseBody = Buffer.from(response.data).toString('base64');
       isBinary = true;
     } else {
-      responseBody = Buffer.from(response.data).toString('utf8');
+      let charset = 'utf-8';
+      const charsetMatch = contentType.match(/charset=\s*["']?([a-zA-Z0-9_-]+)["']?/i);
+      if (charsetMatch) {
+        charset = charsetMatch[1].toLowerCase();
+      }
+      try {
+        const decoder = new TextDecoder(charset, { fatal: false });
+        responseBody = decoder.decode(response.data);
+      } catch (e) {
+        responseBody = Buffer.from(response.data).toString('utf8');
+      }
     }
   }
 
@@ -1107,7 +1154,8 @@ ipcMain.handle('request:execute', async (event, { request: requestObj, envVars }
     duration,
     scriptLog,
     tests,
-    updatedEnvVars: activeEnvVars
+    updatedEnvVars: activeEnvVars,
+    url: interpolatedUrl
   };
 });
 
@@ -1302,6 +1350,10 @@ ipcMain.handle('theme:set', async (event, theme) => {
 
 // Return the userData directory so the Settings UI can show where app data lives.
 ipcMain.handle('app:getDataPath', () => app.getPath('userData'));
+
+ipcMain.handle('preview:setBaseUrl', (event, url) => {
+  lastRequestBaseUrl = url;
+});
 
 // Wipe app data (AI settings, cache, localStorage/cookies) for a clean state,
 // then relaunch. Equivalent to a fresh install without leftover "imported" data.

@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <!-- A relaxed Content Security Policy specifically for the preview document to allow inline scripts, styles and remote images -->
+  <meta http-equiv="Content-Security-Policy"
+    content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:; script-src * 'unsafe-inline' 'unsafe-eval' data: blob:; style-src * 'unsafe-inline'; img-src * data: blob:; font-src * data:; media-src * data: blob:; connect-src *;">
+  <title>Preview</title>
+  <style>
+    html,
+    body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      background: #ffffff;
+      /* Default fallback background for HTML preview */
+    }
+
+    /* Support dark/light mode context if needed */
+    @media (prefers-color-scheme: dark) {
+      body {
+        background: #0f172a;
+        color: #f8fafc;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <script>
+    window.addEventListener('message', (event) => {
+      if (!event.data) return;
+
+      let html = '';
+      let baseUrl = '';
+
+      if (typeof event.data === 'string') {
+        html = event.data;
+      } else if (typeof event.data === 'object') {
+        html = event.data.html || '';
+        baseUrl = event.data.baseUrl || '';
+      } else {
+        return;
+      }
+
+      try {
+        let parsedHtml = html;
+        let baseHref = 'about:blank';
+        if (baseUrl) {
+          try {
+            // Standardize URL to resolve relative paths against host + base path
+            const urlObj = new URL(baseUrl);
+            baseHref = urlObj.origin + urlObj.pathname;
+            if (!baseHref.endsWith('/')) {
+              if (urlObj.pathname.includes('.') && !urlObj.pathname.endsWith('/')) {
+                baseHref = urlObj.origin + urlObj.pathname.substring(0, urlObj.pathname.lastIndexOf('/') + 1);
+              } else {
+                baseHref += '/';
+              }
+            }
+          } catch (e) {
+            // If URL parsing fails, fallback to http://localhost/ so relative links resolve safely and don't load from preview://app/...
+            baseHref = 'http://localhost/';
+          }
+        }
+
+        // Inject <base href="..."> in head if it doesn't already exist
+        if (!html.toLowerCase().includes('<base ')) {
+          const baseTag = `<base href="${baseHref}">`;
+          const headIndex = html.toLowerCase().indexOf('<head>');
+          if (headIndex !== -1) {
+            parsedHtml = html.slice(0, headIndex + 6) + baseTag + html.slice(headIndex + 6);
+          } else {
+            parsedHtml = baseTag + html;
+          }
+        }
+
+        document.open();
+        document.write(parsedHtml);
+        document.close();
+      } catch (e) {
+        console.error('Failed to write preview document:', e);
+      }
+    });
+  </script>
+</body>
+
+</html>

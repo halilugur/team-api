@@ -12,6 +12,7 @@
   --bg-hover: #1b2234;
   /* Interactive state hover */
   --border: rgba(255, 255, 255, 0.05);
+  --border-color: rgba(255, 255, 255, 0.05);
   /* Invisible hairline borders */
   --border-focus: #3b82f6;
   /* Royal violet/blue highlight */
@@ -49,6 +50,7 @@
   --bg-hover: #e2e8f0;
   /* slate-200 interactive hover */
   --border: rgba(15, 23, 42, 0.10);
+  --border-color: rgba(15, 23, 42, 0.10);
   /* dark hairline on light */
   --border-focus: #2563eb;
 
@@ -453,7 +455,12 @@ body.is-resizing .chat-panel {
 
 /* List / Tree Nodes */
 .tree-node {
-  margin-left: 10px;
+  margin-left: 14px;
+  padding-left: 8px;
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .collection-item,
@@ -461,7 +468,7 @@ body.is-resizing .chat-panel {
 .request-item {
   display: flex;
   align-items: center;
-  padding: 7px 12px;
+  padding: 6px 10px;
   border-radius: 6px;
   cursor: pointer;
   gap: 8px;
@@ -473,6 +480,42 @@ body.is-resizing .chat-panel {
 .folder-item:hover,
 .request-item:hover {
   background-color: rgba(255, 255, 255, 0.03);
+}
+
+.item-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+}
+
+.col-icon {
+  color: var(--accent-blue);
+}
+
+.folder-icon {
+  color: var(--accent-yellow);
+}
+
+/* Modern chevron rotation support */
+.chevron {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  height: 12px;
+  color: var(--text-dim);
+  transition: transform 0.2s var(--ease-spring);
+}
+
+.chevron.collapsed {
+  transform: none;
+}
+
+.chevron:not(.collapsed) {
+  transform: rotate(90deg);
 }
 
 .request-item.active {
@@ -489,15 +532,7 @@ body.is-resizing .chat-panel {
   font-weight: 500;
 }
 
-.chevron {
-  font-size: 8px;
-  color: var(--text-dim);
-  transition: transform 0.3s var(--ease-spring);
-}
 
-.chevron.collapsed {
-  transform: rotate(-90deg);
-}
 
 .method-badge {
   font-size: 9px;
@@ -942,14 +977,112 @@ body.is-resizing .chat-panel {
 /* Auth Settings Form */
 .auth-container {
   display: flex;
-  flex-direction: column;
-  gap: 12px;
-  max-width: 420px;
+  gap: 24px;
+  max-width: none;
+  width: 100%;
 }
 
-/* OAuth 2.0 needs the full width for its dropdown + form row */
-.auth-container.auth-wide {
-  max-width: none;
+.auth-left-column {
+  width: 240px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.auth-right-column {
+  flex: 1;
+  min-width: 0;
+  border-left: 1px solid var(--border);
+  padding-left: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.auth-description-box {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+
+.auth-code {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 2px 6px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10.5px;
+  color: var(--accent-blue);
+  word-break: break-all;
+}
+
+.auth-type-select-wrapper {
+  position: relative;
+  width: 100%;
+}
+
+.auth-type-select-wrapper select {
+  width: 100%;
+  appearance: none;
+  -webkit-appearance: none;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 36px 10px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.auth-type-select-wrapper select:hover {
+  background-color: var(--bg-hover);
+  border-color: var(--text-dim);
+}
+
+.auth-type-select-wrapper select:focus {
+  border-color: var(--accent-blue);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
+}
+
+.auth-type-select-wrapper::after {
+  content: "";
+  position: absolute;
+  right: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 8px;
+  height: 5px;
+  background-color: var(--text-muted);
+  clip-path: polygon(100% 0, 0 0, 50% 100%);
+  pointer-events: none;
+  transition: background-color 0.2s ease;
+}
+
+.auth-type-select-wrapper:hover::after {
+  background-color: var(--text-primary);
+}
+
+@media (max-width: 800px) {
+  .auth-container {
+    flex-direction: column;
+    gap: 16px;
+  }
+  .auth-left-column {
+    width: 100%;
+  }
+  .auth-right-column {
+    border-left: none;
+    padding-left: 0;
+  }
 }
 
 .form-group {
@@ -3016,20 +3149,36 @@ mark.search-match.current {
 }
 
 .fm-tree {
-  padding: 6px 0;
+  padding: 6px;
   user-select: none;
+}
+
+.fm-folder-node {
+  display: flex;
+  flex-direction: column;
+}
+
+.fm-tree-branch.tree-node {
+  margin-left: 14px;
+  padding-left: 8px;
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .fm-node {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 4px 8px;
+  gap: 6px;
+  padding: 5px 8px;
   cursor: pointer;
   color: var(--text-muted);
-  font-size: 12.5px;
+  font-size: 12px;
   line-height: 1.4;
   white-space: nowrap;
+  border-radius: 6px;
+  margin: 1px 0;
 }
 
 .fm-node:hover { background: var(--bg-hover); color: var(--text-primary); }
@@ -3046,19 +3195,36 @@ mark.search-match.current {
   cursor: default;
   font-style: italic;
   opacity: 0.6;
+  font-size: 11px;
+  padding: 4px 8px;
 }
 .fm-node-empty:hover { background: transparent; color: var(--text-muted); }
 
-.fm-ic { flex-shrink: 0; color: var(--text-dim); }
-.fm-node:hover .fm-ic { color: var(--text-muted); }
+.fm-ic {
+  flex-shrink: 0;
+  color: var(--text-dim);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.fm-ic.folder-icon {
+  color: var(--accent-yellow);
+}
+.fm-ic.file-icon {
+  color: var(--text-muted);
+}
+.fm-node:hover .fm-ic:not(.folder-icon):not(.file-icon) { color: var(--text-muted); }
 
 .fm-twisty {
   flex-shrink: 0;
   color: var(--text-dim);
   transition: transform 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 .fm-twisty-open { transform: rotate(90deg); }
-.fm-twisty-spacer { width: 10px; flex-shrink: 0; }
+.fm-twisty-spacer { width: 8px; flex-shrink: 0; }
 
 .fm-node-name {
   overflow: hidden;
